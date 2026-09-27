@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.vitahub.app"
+    android:versionCode="32"
+    android:versionName="1.0.2">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34"/>
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Ate o Android 10 o acesso ao pendrive/cartao depende disto; do 11 em
+         diante o armazenamento com escopo exige MANAGE_EXTERNAL_STORAGE. Sem
+         as duas, o app so enxerga o proprio diretorio (Android/data/<pkg>). -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29"/>
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
+    <queries>
+        <package android:name="org.vita3k.emulator"/>
+        <package android:name="org.vita3kplus.emulator"/>
+    </queries>
+
+    <!-- Nenhum trafego do app e http: firmware e lista de updates sao https
+         e links externos vao para o navegador do sistema. Sem isso, um
+         http:// esquecido em qualquer chamada nova sairia em claro. -->
+    <application
+        android:label="VitaHub"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:allowBackup="false"
+        android:hardwareAccelerated="true"
+        android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="false"
+        android:extractNativeLibs="true"
+        android:theme="@style/AppTheme">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="com.vitahub.app.EngineActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:configChanges="locale|keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize|smallestScreenSize|layoutDirection"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/GameTheme"
+            android:preferMinimalPostProcessing="true"/>
+
+        <!-- Necessario para o update in-app: o APK baixado fica em
+             getExternalFilesDir("update") e so pode ser instalado por
+             FileProvider (file:// e bloqueado a partir do Android 7). -->
+        <provider
+            android:name="com.vitahub.app.UpdateProvider"
+            android:authorities="com.vitahub.app.updateprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/vitahub_paths"/>
+        </provider>
+    </application>
+</manifest>

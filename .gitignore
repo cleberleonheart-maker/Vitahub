@@ -1,0 +1,20 @@
+# Saida de build
+build/
+__pycache__/
+
+# Saida do harness de teste do PKG
+/test/work/
+
+# Chave de assinatura do APK: quem tiver isto pode publicar um "update" que o
+# Android aceita como legitimo. Nao versionar.
+keystore.jks
+*.jks
+*.keystore
+*.idsig
+# Copias de backup da chave (keystore.jks.bak-AAAAmmdd). O padrao acima nao
+# pega estes nomes, e um "git add -A"-publicaria a chave de assinatura.
+*.bak-*
+*.bak
+
+# Senha da chave (build.sh le de VitaHub_KEYPASS, nunca do fonte)
+.env
