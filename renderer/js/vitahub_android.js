@@ -784,9 +784,20 @@ checkFirmware: function (region) {
       const self = this;
       return self.installDir().then(async function (base) {
         const out = [];
+        // listDir devolve null quando a pasta nao existe ou nao pode ser lida.
+        // Antes esse null era engolido e o resultado era uma lista vazia, que a
+        // tela lia como "nenhum jogo instalado" -- o oposto do que estava
+        // acontecendo quando o jogo acabara de ser instalado. O motivo vai
+        // junto para a interface mostrar o erro em vez de um "vazio" falso.
+        const problems = [];
         const scan = async function (rel, kind, boot) {
-          const apps = await call('listDir', { path: base + '/' + rel });
-          if (!Array.isArray(apps)) return;
+          const root = base + '/' + rel;
+          const apps = await call('listDir', { path: root });
+          if (!Array.isArray(apps)) {
+            problems.push(root);
+            console.log('listApps: nao consegui ler ' + root);
+            return;
+          }
           for (const entry of apps) {
             if (!entry.d) continue;
             const dir = base + '/' + rel + '/' + entry.n;
@@ -819,6 +830,8 @@ checkFirmware: function (region) {
         };
         await scan('ux0/app', 'vita', 'eboot.bin');
         await scan('pspemu/PSP/GAME', 'psp', 'EBOOT.PBP');
+        out.installDir = base;
+        out.listError = problems.length ? t('library_unreadable') + ' (' + problems.join(', ') + ')' : '';
         return out;
       });
     },

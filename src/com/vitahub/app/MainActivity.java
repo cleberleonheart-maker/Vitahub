@@ -1000,8 +1000,29 @@ public class MainActivity extends Activity {
                 Thread t = new Thread(new Runnable() {
                     public void run() {
                         try {
-                            File[] kids = new File(lpath).listFiles();
-                            if (kids == null) { bus.reply(ridLs, null); return; }
+                            File dirF = new File(lpath);
+                            File[] kids = dirF.listFiles();
+                            if (kids == null) {
+                                // listFiles() devolvendo null e o modo silencioso
+                                // de "biblioteca vazia": a pasta nao existe, o
+                                // volume sumiu, ou falta permissao. A UI so via
+                                // "nenhum jogo instalado", entao o motivo vai
+                                // para o log que o usuario consegue ler no app.
+                                if (lpath.contains("ux0/app") || lpath.contains("pspemu/PSP/GAME")) {
+                                    AppLog.w("listDir " + lpath + " -> listFiles() null (existe=" + dirF.exists()
+                                            + ", isDir=" + dirF.isDirectory() + ", canRead=" + dirF.canRead() + ")");
+                                }
+                                bus.reply(ridLs, null);
+                                return;
+                            }
+                            if (lpath.contains("ux0/app") || lpath.contains("pspemu/PSP/GAME")) {
+                                StringBuilder sb = new StringBuilder();
+                                for (File k : kids) {
+                                    if (sb.length() > 0) sb.append(' ');
+                                    sb.append(k.getName()).append(k.isDirectory() ? "(dir)" : "(file)");
+                                }
+                                AppLog.i("listDir " + lpath + " -> " + kids.length + " entradas: " + sb);
+                            }
                             JSONArray arr = new JSONArray();
                             for (File k : kids) {
                                 JSONObject o = new JSONObject();
@@ -1256,9 +1277,15 @@ Thread t = new Thread(new Runnable() {
                             Map<String, Object> m = PkgExtractor.install(ppath, zrif, wbin, base, pl);
                             JSONObject r = new JSONObject();
                             for (Map.Entry<String, Object> e : m.entrySet()) r.put(e.getKey(), e.getValue());
+                            // O logcat deste aparelho e inutil (AppLog), e a
+                            // instalacao so escrevia la. Sem esta linha nao havia
+                            // como responder "instalou mas nao aparece": faltava
+                            // saber qual base foi usada e o que foi extraido.
+                            AppLog.i("install ok: " + r.toString());
                             bus.reply(rid, r);
                         } catch (Throwable e) {
                             android.util.Log.e("VitaHub", "installPkg(" + ppath + ", zrif=" + (zrif != null && !zrif.isEmpty()) + ", wbin=" + wbin + ", base=" + base + ") falhou: " + e);
+                            AppLog.e("install falhou (base=" + base + "): " + (e.getMessage() != null ? e.getMessage() : e.toString()), e);
                             bus.reply(rid, err((e.getMessage() != null ? e.getMessage() : e.toString()) + " [pkg=" + ppath + "]"));
                         }
                     }

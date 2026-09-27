@@ -433,6 +433,13 @@ code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
   display: flex; align-items: center; gap: 14px;
 }
 .home-section:first-child { margin-top: 10px; }
+/* Falha de leitura da biblioteca: precisa ser visivel na home, e nao parecer
+   mais um item clicavel da grid. */
+.home-warn {
+  margin: 8px 6px 0; padding: 10px 14px; border-radius: 12px;
+  font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.85);
+  background: rgba(229,72,77,0.14); border: 1px solid rgba(229,72,77,0.45);
+}
 .home-section::after {
   content: ""; flex: 1; height: 1px;
   background: linear-gradient(90deg, rgba(255,255,255,0.22), transparent);

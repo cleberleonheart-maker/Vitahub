@@ -331,6 +331,17 @@ const Home = (() => {
     gameApps.forEach((app) => gameGrid.appendChild(makeBubble(app)));
     container.appendChild(gameGrid);
 
+    // A varredura falhou em vez de nao achar jogo nenhum. Sem esta linha a
+    // home mostra so o "Adicionar Jogos", que e indistinguivel de "voce ainda
+    // nao instalou nada" -- e era esse o sintoma depois de uma installacao que
+    // o host dizia ter concluido.
+    if (games && games.listError) {
+      const warn = document.createElement('div');
+      warn.className = 'home-warn';
+      warn.textContent = games.listError;
+      container.appendChild(warn);
+    }
+
     const sc = document.getElementById('home-scroll');
     if (sc) sc.scrollTop = 0;
     bindSway();
@@ -343,10 +354,22 @@ const Home = (() => {
    * ainda escreveriam na mesma #pages ao mesmo tempo.
    */
   let rendering = null;
+  let renderAgain = false;
   function refresh() {
-    if (!rendering) {
-      rendering = render().finally(() => { rendering = null; });
+    // Coalesce: um refresh pedido com um render em andamento era descartado e
+    // devolvia a promessa antiga, entao a installacao terminava e a home
+    // continuava mostrando a lista de antes ate o usuario sair e voltar.
+    if (rendering) {
+      renderAgain = true;
+      return rendering;
     }
+    rendering = render().finally(() => {
+      rendering = null;
+      if (renderAgain) {
+        renderAgain = false;
+        refresh().catch(() => {});
+      }
+    });
     return rendering;
   }
 

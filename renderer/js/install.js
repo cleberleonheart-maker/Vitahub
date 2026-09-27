@@ -267,6 +267,16 @@ const Installer = (() => {
     const body = document.getElementById('library-body');
     const games = await window.vitahub.listApps();
     body.innerHTML = '';
+    if (games && games.listError) {
+      // Falha de leitura nao e biblioteca vazia: dizer "nenhum jogo instalado"
+      // logo depois de instalar um manda o usuario para o canto errado.
+      const bad = document.createElement('div');
+      bad.className = 'game-card';
+      bad.style.cssText = 'grid-column:1/-1;opacity:.7';
+      bad.innerHTML = `<p>${escHtml(games.listError)}</p>`;
+      body.appendChild(bad);
+      return;
+    }
     if (!games || !games.length) {
       const empty = document.createElement('div');
       empty.className = 'game-card';
