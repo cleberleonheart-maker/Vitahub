@@ -513,6 +513,10 @@ code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
 .userpick-head { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .userpick-title { font-size: 30px; font-weight: 600; letter-spacing: 0.6px; }
 .userpick-sub { color: rgba(255,255,255,0.6); font-size: 15px; }
+.userpick-logs {
+  display: block; margin: 18px auto 0; align-self: center;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.18);
+}
 .userpick-list {
   display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch;
   gap: 26px; max-width: 860px;
@@ -661,10 +665,21 @@ code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
 .set-hint { margin-top: 8px; font-size: 12px; line-height: 1.45; color: rgba(255,255,255,0.48); }
 .set-hint.set-hint-warn { color: #ffb454; }
 
-/* Aviso de sessao anterior encerrada anormalmente (crash nativo). */
+/* Camada global de diagnostico: existe fora de qualquer .screen.
+   A nota e o visor de log sao `fixed` porque o app pode morrer antes de abrir a
+   Home -- antes eles herdavam o posicionamento do #home-scroll, que so existe
+   quando a Home ja foi montada. */
+#diag-layer { position: fixed; inset: 0; z-index: 90; pointer-events: none; }
+#diag-layer > * { pointer-events: auto; }
+
+/* Aviso de sessao anterior encerrada de forma relevante. */
 .crash-note {
-  margin: 0 0 14px; padding: 12px 14px; border-radius: 12px;
-  background: rgba(120, 34, 20, 0.55); border: 1px solid rgba(255, 120, 90, 0.45);
+  position: fixed; top: calc(env(safe-area-inset-top, 0px) + 10px);
+  left: 50%; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 28px)); z-index: 95;
+  margin: 0; padding: 12px 14px; border-radius: 12px;
+  background: rgba(120, 34, 20, 0.92); border: 1px solid rgba(255, 120, 90, 0.45);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 .crash-note-title { font-size: 14px; font-weight: 600; color: #ff9f86; margin-bottom: 4px; }
 .crash-note-body { font-size: 12px; line-height: 1.5; color: rgba(255, 255, 255, 0.78); }
@@ -676,7 +691,7 @@ code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
 .crash-note-close { background: transparent; }
 
 /* Visor de log: o log do host e o da engine lado a lado. */
-.logview { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column;
+.logview { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column;
   background: #0b0d10; }
 .logview[hidden] { display: none; }
 .logview-bar { display: flex; align-items: center; gap: 8px; padding: 12px 14px;

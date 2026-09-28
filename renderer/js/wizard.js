@@ -363,6 +363,26 @@ const Wizard = (() => {
     });
   }
 
+  // O log precisa ser alcancavel ANTES da Home existir. Este e o ponto onde o
+  // app morre: selectUser chama Home.refresh(), que percorre a biblioteca
+  // inteira. Se ele cai ali, a nota e o visor -- que viviam dentro de
+  // screen-home -- nunca chegam a ser exibidos. O botao fica na propria tela de
+  // usuario para que a evidencia do fechamento anterior esteja a um toque de
+  // distancia, sem depender de o app conseguir terminar de abrir.
+  function bindUserPickLogs() {
+    const b = document.getElementById('userpick-logs');
+    if (!b || b.dataset.bound) return;
+    b.dataset.bound = '1';
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      try {
+        if (window.Diagnostics) window.Diagnostics.toggle(true);
+      } catch (err) {
+        console.log('userpick-logs:', err);
+      }
+    });
+  }
+
   function selectUser(u) {
     return window.vitahub.setConfig({ user: u.name, avatar: u.avatar || 0 }).then(async () => {
       await Lock.refresh();

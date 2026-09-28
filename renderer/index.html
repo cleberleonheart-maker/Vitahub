@@ -11,6 +11,37 @@
 <body>
   <div id="app">
 
+
+  <!-- CAMADA GLOBAL DE DIAGNOSTICO.
+       Antes a nota de saida e o visor de log viviam dentro de #screen-home, que
+       nasce com a classe `inactive`. Se o app morresse antes da Home -- que e
+       o caso ao escolher o usuario, onde Home.refresh() carrega a biblioteca --
+       o log existia gravado e nao tinha onde ser visto: a tela que o continha
+       nunca era exibida. Aqui ficam fora de qualquer .screen e em posicao
+       fixa, entao a evidencia e alcancavel de qualquer ponto do fluxo, mesmo
+       quando o app nao chega a abrir a Home. -->
+  <div id="diag-layer">
+    <div class="crash-note" id="crash-note" hidden>
+      <div class="crash-note-title" id="crash-note-title"></div>
+      <div class="crash-note-body" id="crash-note-body"></div>
+      <button class="crash-note-btn" id="crash-note-logs" data-i18n="crash_view_logs"></button>
+      <button class="crash-note-btn crash-note-close" id="crash-note-close" data-i18n="crash_dismiss"></button>
+    </div>
+    <div class="logview" id="logview" hidden>
+      <div class="logview-bar">
+        <span class="logview-title" data-i18n="logview_title">Logs</span>
+        <button type="button" class="logview-tab on" data-log="app" data-i18n="logview_app">App</button>
+        <button type="button" class="logview-tab" data-log="engine" data-i18n="logview_engine">Engine</button>
+        <button type="button" class="logview-tab" id="logview-copy" data-i18n="logview_copy">Copiar</button>
+        <button type="button" class="logview-tab" id="logview-refresh" data-i18n="logview_refresh">Atualizar</button>
+        <span class="logview-meta" id="logview-meta"></span>
+        <button type="button" class="logview-tab" id="logview-close" data-i18n="logview_close">Fechar</button>
+      </div>
+      <pre class="logview-body" id="logview-body"></pre>
+    </div>
+  </div>
+
+
     <!-- ============ BOOT ============
          Aparece no HTML (nao criado por JS) de proposito: `boot()` so pode
          desenhar depois de varios `await` na ponte nativa, e qualquer um
@@ -153,6 +184,7 @@
           <p class="userpick-sub" data-i18n="userpick_sub">Escolha um perfil para entrar no seu PS Vita.</p>
         </div>
         <div class="userpick-list" id="userpick-list"></div>
+        <button class="btn btn-sm userpick-logs" id="userpick-logs" data-i18n="crash_view_logs">Ver logs</button>
       </div>
     </section>
 
@@ -193,28 +225,10 @@
       </header>
 
       <div class="home-mid" id="home-scroll">
-        <div class="crash-note" id="crash-note" hidden>
-          <div class="crash-note-title" id="crash-note-title"></div>
-          <div class="crash-note-body" id="crash-note-body"></div>
-          <button class="crash-note-btn" id="crash-note-logs" data-i18n="crash_view_logs"></button>
-          <button class="crash-note-btn crash-note-close" id="crash-note-close" data-i18n="crash_dismiss"></button>
-        </div>
         <div id="pages" class="pages-v"></div>
         <div class="home-hint" id="home-hint"></div>
       </div>
 
-      <div class="logview" id="logview" hidden>
-        <div class="logview-bar">
-          <span class="logview-title" data-i18n="logview_title">Logs</span>
-          <button type="button" class="logview-tab on" data-log="app" data-i18n="logview_app">App</button>
-          <button type="button" class="logview-tab" data-log="engine" data-i18n="logview_engine">Engine</button>
-          <button type="button" class="logview-tab" id="logview-copy" data-i18n="logview_copy">Copiar</button>
-          <button type="button" class="logview-tab" id="logview-refresh" data-i18n="logview_refresh">Atualizar</button>
-          <span class="logview-meta" id="logview-meta"></span>
-          <button type="button" class="logview-tab" id="logview-close" data-i18n="logview_close">Fechar</button>
-        </div>
-        <pre class="logview-body" id="logview-body"></pre>
-      </div>
 
       <div class="pkg-menu" id="pkg-menu">
         <button class="pkg-item" data-kind="pkg"><span class="pkg-ic" data-icon="pkg"></span><span data-i18n="install_pkg_full">PKG + Chave / zRIF</span></button>
