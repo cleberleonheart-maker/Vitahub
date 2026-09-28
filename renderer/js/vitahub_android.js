@@ -828,15 +828,16 @@ checkFirmware: function (region) {
         // para a tela mostrar quantos jogos foram realmente encontrados.
         const problems = [];
         const summary = [];
-        // Orcamento da varredura, em duas camadas. Lock.js so espera
-        // Home.refresh() por 8s antes de abrir a tela inicial: se a varredura
-        // estourar esse limite, comTimeout abre a Home com o render ANTERIOR e o
-        // sintoma e uma lista parada -- foi assim que um 0 ficou congelado na
-        // tela mesmo com o jogo instalado e funcionando. Entao o total fica bem
-        // abaixo do orcamento do render, e cada leitura tem limite proprio: uma
-        // listagem local leva milissegundos, 4s ja e eventualidade.
-        const SCAN_MS = 4000;
-        const SCAN_TOTAL_MS = 12000;
+        // Orcamento da varredura, em duas camadas: 2,5s por leitura e 5s no
+        // total, contados de um unico t0, com parada no meio se estourar.
+        //
+        // Precisa ficar bem abaixo dos orcamentos de render (9s no boot, em
+        // app.js). Duas transicoes de tela racedam a varredura contra um limite
+        // e perdem a corrida quando ela passa: no v37 a tela inicial ficava sem
+        // render e o app fechava sozinho. Listagem em armazenamento interno
+        // leva milissegundos -- 2,5s ja e eventualidade, nao folga.
+        const SCAN_MS = 2500;
+        const SCAN_TOTAL_MS = 5000;
         const t0 = Date.now();
         const left = function () { return Math.max(500, Math.min(SCAN_MS, SCAN_TOTAL_MS - (Date.now() - t0))); };
         const scan = async function (rel, kind, boot) {

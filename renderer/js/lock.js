@@ -38,12 +38,6 @@ const Lock = (() => {
   // lento, muitas pastas) deixa o lock com .flip-away aplicado e nenhuma tela
   // com .active: tela preta, sem volta, porque nem o then nem o catch do
   // Promise.dispara. A home entra de qualquer forma; o que falhar vira toast.
-  // Maior que a varredura da biblioteca (12s em vitahub_android.js) + a montagem
-  // da Home. Menor que isso e o render perde a corrida para comTimeout, que
-  // entao abre a tela inicial com o resultado da renderizacao ANTERIOR -- foi
-  // assim que a contagem de jogos ficou congelada num 0 antigo. Estourar aqui
-  // tem custo: o catch mostra toast de erro em vez de fingir que deu certo.
-  const HOME_RENDER_MS = 16000;
 
   function unlock() {
     if (unlocked) return;
@@ -59,17 +53,19 @@ const Lock = (() => {
       lockEl.classList.remove('lock-unlocking', 'flip-away');
     };
     setTimeout(() => {
-      // Home.refresh() pode rejeitar; sem este catch o `unlocked` ficava em true
-      // para sempre e a tela de bloqueio nunca mais abria (app travado).
-      Promise.resolve()
-        .then(() => withTimeout(Home.refresh(), HOME_RENDER_MS, 'Home.refresh'))
-        .then(openHome)
-        .catch((e) => {
-          console.error('Lock: falha ao abrir a home', e);
-          openHome();
-          toast('Erro ao abrir a tela inicial: ' + ((e && e.message) || e));
-        })
-        .finally(() => { unlocked = false; });
+      // A Home entra PRIMEIRO e a lista e pintada depois. O caminho antigo
+      // segurava a transicao ate o render terminar, e enquanto segurava nao
+      // havia nenhuma tela com .active -- o app ficava preto e fechava sozinho.
+      // Abrir primeiro deixa a transicao independente da lentidao da varredura.
+      openHome();
+      // showScreen() ja pede o refresh e o coalescing de home.js devolve a mesma
+      // promessa em voo, entao este catch cobre os dois caminhos sem redesenhar
+      // duas vezes. Sem ele a rejeicao ficava sem tratamento.
+      Promise.resolve(Home.refresh()).catch((e) => {
+        console.error('Lock: falha ao abrir a home', e);
+        toast('Erro ao abrir a tela inicial: ' + ((e && e.message) || e));
+      });
+      unlocked = false;
     }, 520);
   }
 

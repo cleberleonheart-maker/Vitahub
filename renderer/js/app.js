@@ -431,7 +431,11 @@ async function boot() {
       await window.vitahub.setConfig({ users: legacy });
     }
     try {
-      await withTimeout(Home.render(), 5000, 'Home.render');
+      // Maior que a varredura da biblioteca (5s em vitahub_android.js) + a
+      // montagem da Home. Com 5s de orcamento e varredura de 12s, o timeout
+      // estourava, o render era abandonado no meio e a tela inicial ficava sem
+      // painted: o app abria na selacao de usuario sem nada atras.
+      await withTimeout(Home.render(), 9000, 'Home.render');
     } catch (e) { console.error('Home.render:', e && e.message); }
     Wizard.renderUserPick();
     showScreen('userpick');
