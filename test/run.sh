@@ -19,3 +19,9 @@ javac -nowarn -d "$CLASSES" src/com/vitahub/app/PkgExtractor.java src/com/vitahu
 echo "==> compila e roda o harness"
 javac -nowarn -cp "$CLASSES" -d "$CLASSES" test/PkgTest.java
 java -cp "$CLASSES" -Dvitahub.test.work="$WORK" PkgTest
+
+# A varredura da biblioteca roda so dentro do WebView do Android, entao nenhuma
+# das suites acima tocava nela. Um erro de contagem ali e indistinguivel de
+# "nada instalado" para quem ve a tela, e sair disso custava um APK por tentativa.
+echo "==> varredura da biblioteca (ponte falsa, sem aparelho)"
+node test/scan.js
