@@ -308,6 +308,18 @@ const Home = (() => {
     sys.forEach((app) => sysGrid.appendChild(makeBubble(app)));
     container.appendChild(sysGrid);
 
+    // Resumo da varredura sempre visivel na Home, e nao so quando ha erro: a
+    // Home e onde o usuario procura o jogo depois de instalar, e era ali que a
+    // lista sumia sem deixar rastro. Fica logo abaixo dos apps do sistema
+    // porque no fim da rolagem ninguem desce ate la. A linha diz a pasta que o
+    // app le e quantos titulos ela tem, que e o que fecha o diagnostico sem log.
+    if (games && games.scanReport) {
+      const rep = document.createElement('div');
+      rep.className = games.listError ? 'home-warn' : 'lib-report';
+      rep.textContent = games.listError ? games.listError + ' · ' + games.scanReport : games.scanReport;
+      container.appendChild(rep);
+    }
+
     // "Jogar novamente" e "Favoritos" so entram quando tem algo para mostrar:
     // secao vazia ocupa espaco e ensina o usuario a procurar o que nao existe.
     // 8 no maximo porque a grid e rolavel e a home perde o sentido se virar
@@ -330,17 +342,6 @@ const Home = (() => {
     gameGrid.classList.add('vita-bottom');
     gameApps.forEach((app) => gameGrid.appendChild(makeBubble(app)));
     container.appendChild(gameGrid);
-
-    // A varredura falhou em vez de nao achar jogo nenhum. Sem esta linha a
-    // home mostra so o "Adicionar Jogos", que e indistinguivel de "voce ainda
-    // nao instalou nada" -- e era esse o sintoma depois de uma installacao que
-    // o host dizia ter concluido.
-    if (games && games.listError) {
-      const warn = document.createElement('div');
-      warn.className = 'home-warn';
-      warn.textContent = games.listError;
-      container.appendChild(warn);
-    }
 
     const sc = document.getElementById('home-scroll');
     if (sc) sc.scrollTop = 0;

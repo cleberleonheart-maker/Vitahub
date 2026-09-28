@@ -13,15 +13,34 @@
   const events = {};
   let seq = 0;
 
-  function call(method, args) {
+  function call(method, args, timeoutMs) {
     return new Promise(function (resolve) {
       const id = String(++seq);
-      pending[id] = resolve;
+      let done = false;
+      let timer = null;
+      // Sem timeout, uma resposta perdida pelo poll (o Android estrangula
+      // setInterval em WebView em segundo plano) deixava a promessa pendurada
+      // para sempre: a tela que dependia dela nao desenhava e nao mostrava erro
+      // nenhum. So as leituras curtas recebem limite — instalar um jogo de
+      // varios GB legitimately leva minutos.
+      const finish = function (v) {
+        if (done) return;
+        done = true;
+        if (timer) clearTimeout(timer);
+        delete pending[id];
+        resolve(v);
+      };
+      pending[id] = finish;
+      if (timeoutMs) {
+        timer = setTimeout(function () {
+          console.warn('VitaHub: sem resposta do host para ' + method + ' em ' + timeoutMs + 'ms');
+          finish(null);
+        }, timeoutMs);
+      }
       try {
         B.call(method, JSON.stringify(args || {}), id);
       } catch (e) {
-        delete pending[id];
-        resolve(null);
+        finish(null);
       }
     });
   }
@@ -809,11 +828,14 @@ checkFirmware: function (region) {
         // para a tela mostrar quantos jogos foram realmente encontrados.
         const problems = [];
         const summary = [];
+        // Limite por leitura: a varredura inteira tem varias chamadas em
+        // sequencia, e uma delas presa ja impede a lista de aparecer.
+        const SCAN_MS = 8000;
         const scan = async function (rel, kind, boot) {
           const root = base + '/' + rel;
-          const apps = await call('listDir', { path: root });
+          const apps = await call('listDir', { path: root }, SCAN_MS);
           if (!Array.isArray(apps)) {
-            const there = await call('exists', { path: root });
+            const there = await call('exists', { path: root }, SCAN_MS);
             if (there) {
               problems.push(root);
               console.log('listApps: ' + root + ' existe mas nao pode ser lida');
@@ -828,10 +850,10 @@ checkFirmware: function (region) {
           for (const entry of apps) {
             if (!entry.d) continue;
             const dir = base + '/' + rel + '/' + entry.n;
-            if (!(await call('exists', { path: dir + '/' + boot }))) continue;
+            if (!(await call('exists', { path: dir + '/' + boot }, SCAN_MS))) continue;
             let title = '';
             if (kind === 'vita') {
-              title = String((await call('sfoTitle', { path: dir + '/sce_sys/param.sfo' })) || '');
+              title = String((await call('sfoTitle', { path: dir + '/sce_sys/param.sfo' }, SCAN_MS)) || '');
               // Titulo de sistema nao e jogo. O proprio instalador de firmware
               // deixa o AUTOPLUG0 em ux0/app, e a varredura o pegava como se
               // fosse um jogo: abrir o atualizador dentro do emulador quebra a
@@ -841,7 +863,7 @@ checkFirmware: function (region) {
                 continue;
               }
               if (title) {
-                const cat = String((await call('sfoCategory', { path: dir + '/sce_sys/param.sfo' })) || '');
+                const cat = String((await call('sfoCategory', { path: dir + '/sce_sys/param.sfo' }, SCAN_MS)) || '');
                 if (cat === 'sys') {
                   console.log('listApps: titulo de sistema ignorado (sys): ' + entry.n);
                   continue;
