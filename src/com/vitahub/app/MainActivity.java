@@ -700,9 +700,28 @@ public class MainActivity extends Activity {
             case "installDir":
                 bus.reply(id, defaultInstallDir());
                 return;
-            case "volumes":
-                bus.reply(id, listVolumes());
+            case "volumes": {
+                final String ridVol = id;
+                // Fora da UI thread, como readFile/exists/listDir. listVolumes()
+                // nao e so uma consulta: para cada volume ele chama
+                // getUsableSpace()/getTotalSpace() (statfs, que bloqueia em
+                // cartao SD) e probeWritable(), que CRIA a pasta e escreve um
+                // arquivo de teste. Tudo isso na main thread segurava a WebView
+                // por segundos, e o sistema matava o processo -- o app
+                // "fechava" exatamente ao abrir Configuracoes, a unica tela que
+                // lista volumes. readFile, exists, listDir, sfoTitle e
+                // sfoCategory ja saiam daqui para fora; volumes ficou de fora e
+                // era o unico metodo de leitura com I/O de disco ainda preso a
+                // main thread.
+                Thread tv = new Thread(new Runnable() {
+                    public void run() {
+                        bus.reply(ridVol, listVolumes());
+                    }
+                }, "vitahub-volumes");
+                tv.setDaemon(true);
+                tv.start();
                 return;
+            }
             case "setPrefPath": {
                 // Trocar o diretorio de instalacao para um cartao SD ou um
                 // pendrive so surte efeito no config.yml da engine ANTES da
