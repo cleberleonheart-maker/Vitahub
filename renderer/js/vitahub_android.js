@@ -390,6 +390,157 @@
     return cfg;
   }
 
+  /**
+   * Migracao da biblioteca para a pasta compartilhada.
+   *
+   * <p>Uma unica implementacao para consulta e execucao ({@code planOnly}).
+   * Duas versoes das mesmas condicoes divergem, e a divergencia aparece como "a
+   * tela decidiu que nao havia nada a fazer" com jogo na fila -- exatamente a
+   * classe de bug que a migracao antiga ja produziu uma vez.
+   *
+   * <p>Ordem obrigatoria: permissao, espaco, copia, verificacao por tamanho,
+   * troca da config, e so entao remocao da origem. Ver test/shared.js: inverter
+   * a ordem das duas ultimas etapas faz o teste de "copia incompleta" falhar em
+   * quatro assercoes, entre elas "origem intacta".
+   */
+  async function sharedMigration(self, opts) {
+    opts = opts || {};
+    const planOnly = !!opts.planOnly;
+    const c = await loadConfig();
+    const out = { ok: false, reason: '', from: '', to: '', bytes: 0, files: 0, removed: false, needed: false };
+    const storage = (await call('storageDir')) || '';
+    const from = (typeof c.installDir === 'string' && c.installDir) || '';
+    const to = (await call('defaultDir')) || '';
+    out.from = from;
+    out.to = to;
+    const stop = function (reason) { out.reason = reason; return out; };
+    // So a pasta privada do app e origem. Um cartao SD ou pendrive escolhido
+    // pelo usuario e destino, nunca origem -- mesma regra da migrate(), e pelo
+    // mesmo motivo: nada do usuario e movido sem ele pedir.
+    if (!from || !storage || from.indexOf(storage) !== 0) return stop('fora');
+    if (!to || to.indexOf(storage) === 0) return stop('destino-privado');
+    if (from === to) return stop('igual');
+    // "Tem alguma coisa" e o que importa: quem so tem jogo de PSP nao tem
+    // ux0/app, e uma checagem que so olhasse ali deixaria essa biblioteca
+    // presa em Android/data para sempre.
+    let hasAnything = false;
+    for (const t of ['ux0', 'pspemu', 'savedata']) {
+      if (await call('exists', { path: from + '/' + t })) { hasAnything = true; break; }
+    }
+    if (!hasAnything) return stop('vazio');
+    // O marcador vem ANTES da checagem de "destino ocupado", e a ordem nao e
+    // preciosismo: um destino com marcador e uma copia INTERROMPIDA desta
+    // propria migracao, e nao a biblioteca do usuario. Invertido, uma
+    // tentativa morta pelo sistema se declarava "destino ocupado" para sempre
+    // -- com a copia pela metade ocupando espaco e a migracao recusando rodar
+    // de novo. Ver o cenario "interrompida" em test/shared.js.
+    const MARK = to + '/.vitahub-migrando';
+    const marker = !!(await call('exists', { path: MARK }));
+    // Destino ja povoado NUNCA e sobrescrito: se o usuario rodou a migracao,
+    // instalou jogos e o app foi reinstalado, a copia antiga continua sendo a
+    // biblioteca dele.
+    if (!marker && (await call('exists', { path: to + '/ux0/app' }))) return stop('destino-ocupado');
+    const acc = await call('storageAccess');
+    if (!acc || !acc.granted) return stop('sem-permissao');
+    // vs0 NAO e copiado: e o firmware, que o host reextrai do PUP ja guardado no
+    // diretorio privado. Copiar varios GB de firmware seria o item mais pesado
+    // da operacao para um arquivo que se reconstroi sozinho.
+    const trees = ['ux0', 'pspemu', 'savedata'];
+    const sizes = {};
+    let need = 0;
+    for (const t of trees) {
+      if (!(await call('exists', { path: from + '/' + t }))) continue;
+      const n = await call('du', { path: from + '/' + t });
+      if (typeof n !== 'number' || n < 0) return stop('medicao-falhou');
+      sizes[t] = n;
+      need += n;
+    }
+    if (!need) return stop('vazio');
+    const vols = await call('volumes');
+    const vol = (Array.isArray(vols) ? vols : []).find((v) => v.primary) || {};
+    const free = typeof vol.free === 'number' ? vol.free : 0;
+    // 5% de folga: a copia e por arquivos, e encher o volume no meio dela
+    // deixaria a biblioteca partida em dois lugares.
+    if (free && free < need * 1.05 + 16777216) {
+      out.bytes = need;
+      return stop('espaco');
+    }
+    out.needed = true;
+    out.bytes = need;
+    out.interrupted = marker;
+    if (planOnly) return out;
+
+    // Tentativa anterior interrompida: a origem esta intacta, entao a copia
+    // parcial e descartada e a copia recomeca limpa.
+    if (marker) {
+      await call('delete', { path: to });
+      call('mark', { tag: 'migrate: tentativa anterior interrompida, recomecando' });
+    }
+    const made = await call('mkdirs', { path: to });
+    if (made && made.ok === false) return stop('destino-recusou');
+    // Marcador ANTES de comecar a copiar: e o que faz a proxima abertura
+    // reconhecer uma tentativa interrompida pelo sistema -- que neste aparelho
+    // acontece, e era o que deixava uma copia pela metade ocupando espaco e
+    // fazendo a migracao se declarar "ocupada" para sempre.
+    await call('writeFile', { path: MARK, content: String(Date.now()) });
+    let bytes = 0;
+    let files = 0;
+    for (const t of trees) {
+      if (sizes[t] === undefined) continue;
+      const r = await call('copyTree', { src: from + '/' + t, dst: to + '/' + t });
+      if (!r || !r.ok) {
+        await call('delete', { path: to });
+        return stop('copia-falhou');
+      }
+      bytes += r.bytes || 0;
+      files += r.files || 0;
+    }
+    // Verificacao antes de qualquer troca: compara o tamanho de cada arvore
+    // copiada com a origem. Divergencia significa copia incompleta -- e aqui a
+    // origem fica intacta e a parcial e removida.
+    for (const t of Object.keys(sizes)) {
+      const got = await call('du', { path: to + '/' + t });
+      if (typeof got !== 'number' || got !== sizes[t]) {
+        await call('delete', { path: to });
+        return stop('verificacao');
+      }
+    }
+    out.bytes = bytes;
+    out.files = files;
+    // A partir daqui a copia esta verificada: agora sim a config aponta para a
+    // pasta compartilhada, e so entao a antiga pode sair.
+    c.installDir = to;
+    await saveConfig();
+    await call('setPrefPath', { path: to });
+    out.fw = await self.ensureFirmware(to);
+    // O FIRMWARE e a ultima coisa que pode dar errado, e ela e a pior: a engine
+    // nativa desta sessao ja foi iniciada com o pref-path ANTIGO, entao
+    // fwInstall pode ter gravado o vs0/sys na arvore que estamos prestes a
+    // apagar. Sem esta checagem a migracao terminava "com sucesso" apagando o
+    // unico firmware do usuario e deixando o emulador sem vs0/sys.
+    if (!(await call('exists', { path: to + '/vs0/sys' }))
+        && (await call('exists', { path: from + '/vs0' }))) {
+      const v = await call('copyTree', { src: from + '/vs0', dst: to + '/vs0' });
+      out.fwCopied = !!(v && v.ok);
+    }
+    const fwOk = !!(await call('exists', { path: to + '/vs0/sys' }));
+    out.fwOk = fwOk;
+    // O marcador sai antes da limpeza: a partir daqui a copia esta verificada e
+    // a config aponta para a pasta nova, entao uma interrupcao agora e
+    // inofensiva -- a pasta antiga e so lixo.
+    await call('delete', { path: MARK });
+    // Sem firmware no destino, a pasta antiga NAO e apagada. E um exagero
+    // preferir espaco vazio, e o unico jeito de o emulador ter como funcionar.
+    if (!fwOk) {
+      out.ok = true;
+      out.reason = 'firmware-pendente';
+      return out;
+    }
+    out.removed = (await call('delete', { path: from })) === true;
+    out.ok = true;
+    return out;
+  }
+
   async function saveConfig() {
     const home = (await call('homeDir')) || '';
     // Gravacao atomica (tmp + rename) e nao writeFile: config.json guarda o
@@ -1097,6 +1248,31 @@ checkFirmware: function (region) {
      * sem o usuario precisar sair e voltar da tela.
      */
     onStorageChange: function (cb) { events['storage:changed'] = cb; },
+    onMigrateProgress: function (cb) { events['migrate:progress'] = cb; },
+    du: function (path) { return call('du', { path: path || '' }); },
+    copyTree: function (src, dst) { return call('copyTree', { src: src || '', dst: dst || '' }); },
+    /**
+     * Leva a biblioteca da pasta privada do app para /storage/emulated/0/VitaHub.
+     *
+     * <p>Motivacao: em Android/data nao ha como chegar a biblioteca com nenhuma
+     * ferramenta (o seletor do sistema bloqueia, o gerenciador do aparelho
+     * tambem) e o desinstalador apaga tudo. Cada defeito do app vira uma decisao
+     * entre fechar o app e perder os jogos.
+     *
+     * <p>A ordem das etapas e o que importa, e ela esta nesta ordem de proposito:
+     * nada e apagado antes de a copia estar verificada. Se qualquer etapa
+     * falhar, a pasta antiga fica intacta e a proxima abertura tenta de novo --
+     * por isso o marcador .vitahub-migrando, que faz a tentativa interrompida
+     * recomecar em vez de conviver com uma copia pela metade.
+     */
+    migrateToShared: function () { return sharedMigration(this, {}); },
+    /**
+     * A mesma funcao em modo consulta: diz o que SERIA feito, sem fazer nada.
+     * Roda a cada abertura e precisa sair em milissegundos, porque e o que
+     * decide se o modal aparece -- um modal que abre e fecha sozinho em toda
+     * inicializacao seria pior que o problema que ele resolve.
+     */
+    migrateToSharedPlan: function () { return sharedMigration(this, { planOnly: true }); },
     // Reconhece o arquivo escolhido: tamanho, sha1 e se a estrutura do pacote
     // fecha. O app chama isto ANTES de instalar para conseguir dizer "o download
     // parou no meio" em vez de propagar um erro opaco do host.

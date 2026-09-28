@@ -27,6 +27,17 @@ function newWorld(spec) {
     category: spec.category || '',
     installDir: spec.installDir || '',
     corruptConfig: !!spec.corruptConfig,
+    // Bytes por arquivo: a migracao para a pasta compartilhada compara o
+    // tamanho de cada arvore antes e depois, entao o mundo precisa ter peso.
+    sizeOf: spec.sizeOf === undefined ? 4096 : spec.sizeOf,
+    free: spec.free === undefined ? 64 * 1024 * 1024 * 1024 : spec.free,
+    permission: spec.permission === undefined ? true : !!spec.permission,
+    // storageDir/defaultDir sobrescreviveis: o destino agora vive fora de
+    // Android/data, o que o harness assumia impossivel.
+    storageDir: spec.storageDir || BASE.replace(/\/vita$/, ''),
+    defaultDir: spec.defaultDir || BASE,
+    truncateCopy: !!spec.truncateCopy,
+    prefPath: spec.prefPath || '',
   };
 }
 
@@ -62,7 +73,7 @@ function mount(world, opts) {
             v = null;
           }
           break;
-        case 'storageDir': v = BASE.replace(/\/vita$/, ''); break;
+        case 'storageDir': v = world.storageDir; break;
         case 'writeFileAtomic':
         case 'writeFile':
           // Sem isto saveConfig() resolvia null e a config reescrita pela
@@ -73,11 +84,63 @@ function mount(world, opts) {
               if (j && typeof j.installDir === 'string') world.installDir = j.installDir;
               v = true;
             } catch (e) { v = null; }
+          } else if (/\.vitahub-migrando$/.test(a.path || '')) {
+            // Marcador da migracao compartilhada: precisa existir de verdade no
+            // mundo, porque a proxima abertura depende dele para saber se a
+            // tentativa anterior foi interrompida.
+            world.files.add(a.path);
+            v = true;
           } else {
             v = null;
           }
           break;
-        case 'defaultDir': v = BASE; break;
+        case 'delete': {
+          const p = a.path;
+          if (!world.dirs.has(p) && !world.files.has(p)) { v = false; break; }
+          const pre = p + '/';
+          for (const d of Array.from(world.dirs)) if (d === p || d.startsWith(pre)) world.dirs.delete(d);
+          for (const f of Array.from(world.files)) if (f === p || f.startsWith(pre)) world.files.delete(f);
+          world.dirs.delete(p);
+          world.files.delete(p);
+          v = true;
+          break;
+        }
+        case 'du': {
+          const p = a.path;
+          if (!world.dirs.has(p) && !world.files.has(p)) { v = 0; break; }
+          const pre = p + '/';
+          let n = 0;
+          for (const f of world.files) if (f === p || f.startsWith(pre)) n += world.sizeOf;
+          v = n;
+          break;
+        }
+        case 'copyTree': {
+          // Copia recursiva, e nao so um nivel: o host percorre a arvore
+          // inteira, e um copyTree de um nivel deixaria o teste passar com um
+          // codigo que so copia a primeira camada.
+          const src = a.src;
+          if (!world.dirs.has(src) && !world.files.has(src)) { v = { ok: false, error: 'origem' }; break; }
+          const pre = src + '/';
+          let bytes = 0;
+          let n = 0;
+          for (const f of Array.from(world.files).filter((x) => x.startsWith(pre))) {
+            if (world.truncateCopy && f.indexOf('/sce_sys/') >= 0) continue;   // morre no meio
+            world.files.add(a.dst + f.slice(src.length));
+            bytes += world.sizeOf;
+            n++;
+          }
+          for (const d of Array.from(world.dirs).filter((x) => x.startsWith(pre))) {
+            world.dirs.add(a.dst + d.slice(src.length));
+          }
+          world.dirs.add(a.dst);
+          v = { ok: true, bytes: bytes, files: n, total: bytes };
+          break;
+        }
+        case 'defaultDir': v = world.defaultDir; break;
+        case 'storageAccess': v = { granted: world.permission, mode: 'all-files', sdk: 33 }; break;
+        case 'setPrefPath': world.prefPath = a.path || ''; v = true; break;
+        case 'volumes': v = [{ path: world.storageDir, primary: true, free: world.free,
+          total: world.free * 4, writable: world.permission }]; break;
         case 'readConfig': v = world.installDir ? JSON.stringify({ installDir: world.installDir }) : null; break;
         case 'writeConfig': v = true; break;
         case 'mkdirs': v = world.dirs.add(a.path) || true; break;

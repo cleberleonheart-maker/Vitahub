@@ -412,6 +412,9 @@ async function boot() {
     withTimeout(window.Diagnostics.init(), 3000, 'Diagnostics.init')
       .catch((e) => console.error('Diagnostics.init:', e && e.message));
   }
+  if (window.SharedMigration) {
+    try { window.SharedMigration.bind(); } catch (e) { console.error('SharedMigration.bind:', e && e.message); }
+  }
   try {
     await withTimeout(Lock.init(), 4000, 'Lock.init');
   } catch (e) { console.error('Lock.init:', e && e.message); }
@@ -434,6 +437,22 @@ async function boot() {
   }).catch(function (e) {
     console.error('migrate:', (e && e.message) || e);
   });
+
+  // Migracao para /storage/emulated/0/VitaHub. Roda DEPOIS da migrate() acima,
+  // para levar os jogos que ainda estao na pasta privada do app para uma pasta
+  // que o usuario alcanca: em Android/data nao ha seletor de arquivo nem
+  // gerenciador, e o desinstalador apaga tudo.
+  //
+  // Nao bloqueia o boot: a tela aparece primeiro e a copia corre por tras. Uma
+  // operacao de varios minutos na frente do primeiro paint seria lida como "o
+  // app travou", que e exatamente a queixa que o usuario traz.
+  if (cfg.wizardDone && (cfg.user || '').length && window.vitahub.migrateToShared) {
+    setTimeout(function () {
+      SharedMigration.start().catch(function (e) {
+        console.error('migrateToShared:', (e && e.message) || e);
+      });
+    }, 900);
+  }
 
   if (cfg.wizardDone && (cfg.user || '').length) {
     if (!Array.isArray(cfg.users) || !cfg.users.length) {

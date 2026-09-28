@@ -300,8 +300,38 @@ public class MainActivity extends Activity {
         return f != null ? f : getFilesDir();
     }
 
+    /**
+     * Onde a arvore de jogos vive por padrao.
+     *
+     * <p>Era o diretorio privado do app (Android/data/&lt;pkg&gt;/files/vita), e
+     * isso e um problema estrutural, nao um detalhe: o Android 11+ bloqueia
+     * Android/data para o seletor de arquivos do sistema E para o gerenciador do
+     * aparelho, e o desinstalador apaga o diretorio inteiro. O usuario nao
+     * alcança a biblioteca com nenhuma ferramenta, e cada problema vira uma
+     * escolha entre fechar o app e perder os jogos.
+     *
+     * <p>A pasta compartilhada resolve os dois de uma vez: sobrevive a
+     * desinstalacao e aparece no gerenciador de arquivos. Em troca exige
+     * acesso a todos os arquivos, que o app ja pede e checa
+     * ({@link #hasStorageAccess()}).
+     */
     private String defaultInstallDir() {
+        File shared = sharedRoot();
+        if (shared != null) return shared.getAbsolutePath();
         return new File(externalRoot(), "vita").getAbsolutePath();
+    }
+
+    /** Raiz compartilhada do usuario, ou null se o volume nao der para escrever. */
+    private File sharedRoot() {
+        File emu = android.os.Environment.getExternalStorageDirectory();
+        if (emu == null) return null;
+        File f = new File(emu, "VitaHub");
+        // O Android em alguns aparelhos monta /storage/emulated/0 como somente
+        // leitura para quem nao tem acesso total; nesse caso o chamador cai no
+        // diretorio privado em vez de prometer uma pasta que nao da para gravar.
+        if (!f.isDirectory() && !f.mkdirs()) return null;
+        if (!f.canWrite()) return null;
+        return f;
     }
 
     // ------------------------------------------------------------------
@@ -971,6 +1001,59 @@ public class MainActivity extends Activity {
                 }, "vitahub-writeatomic");
                 ta.setDaemon(true);
                 ta.start();
+                return;
+            }
+            case "du": {
+                // Tamanho total de uma arvore. A migracao para a pasta
+                // compartilhada precisa saber o espaco necessario ANTES de
+                // copiar: encher o armazenamento no meio da copia e o jeito
+                // mais rapido de perder a biblioteca do usuario.
+                final String upath = arg(a, "path", "");
+                final String ridDu = id;
+                Thread td = new Thread(new Runnable() {
+                    public void run() {
+                        try {
+                            bus.reply(ridDu, duRec(new File(upath)));
+                        } catch (Throwable e) {
+                            bus.reply(ridDu, -1L);
+                        }
+                    }
+                }, "vitahub-du");
+                td.setDaemon(true);
+                td.start();
+                return;
+            }
+            case "copyTree": {
+                // Copia recursiva de arvore com progresso. copyFile() so
+                // resolve arquivo: a arvore de jogos tem milhares deles, e
+                // percorre-los pela ponte perderia o fio.
+                final String tsrc = arg(a, "src", "");
+                final String tdst = arg(a, "dst", "");
+                final String ridCt = id;
+                Thread tct = new Thread(new Runnable() {
+                    public void run() {
+                        try {
+                            File s = new File(tsrc);
+                            if (!s.exists()) { bus.reply(ridCt, err("origem inexistente")); return; }
+                            long total = duRec(s);
+                            final long[] done = new long[]{0L};
+                            JSONObject o = new JSONObject();
+                            o.put("ok", Boolean.TRUE);
+                            o.put("total", total);
+                            o.put("bytes", 0L);
+                            o.put("files", 0L);
+                            // 256 KB de granularidade: um evento por arquivo daria
+                            // dezenas de milhares de mensagens pela ponte, e a
+                            // propria passagem de mensagens viraria o gargalo.
+                            o.put("since", 0L);
+                            bus.reply(ridCt, copyTree(s, new File(tdst), done, total, o));
+                        } catch (Throwable e) {
+                            bus.reply(ridCt, err(String.valueOf(e.getMessage())));
+                        }
+                    }
+                }, "vitahub-copytree");
+                tct.setDaemon(true);
+                tct.start();
                 return;
             }
             case "writeFile": {
@@ -2037,6 +2120,73 @@ Thread t = new Thread(new Runnable() {
             return null;
         } finally {
             if (in != null) try { in.close(); } catch (Throwable ignore) {}
+        }
+    }
+
+    private static long duRec(File f) {
+        if (f == null) return 0L;
+        try {
+            if (f.isFile()) return f.length();
+            File[] kids = f.listFiles();
+            if (kids == null) return 0L;
+            long t = 0L;
+            for (File k : kids) t += duRec(k);
+            return t;
+        } catch (Throwable ignore) {
+            return 0L;
+        }
+    }
+
+    /**
+     * Copia recursiva. {@code st} e o JSONObject de progresso que se reusa como
+     * estado entre os arquivos (bytes, contagem e o marcador da ultima emission),
+     * para nao alocar um objeto por arquivo.
+     */
+    private JSONObject copyTree(File src, File dst, long[] done, long total, JSONObject st) {
+        try {
+            if (src.isDirectory()) {
+                if (!dst.isDirectory() && !dst.mkdirs()) {
+                    st.put("ok", Boolean.FALSE);
+                    st.put("error", "sem permissao para criar " + dst.getAbsolutePath());
+                    return st;
+                }
+                File[] kids = src.listFiles();
+                if (kids == null) {
+                    st.put("ok", Boolean.FALSE);
+                    st.put("error", "nao foi possivel ler " + src.getAbsolutePath());
+                    return st;
+                }
+                for (File k : kids) {
+                    copyTree(k, dst, done, total, st);
+                    if (!st.optBoolean("ok", true)) return st;
+                }
+                return st;
+            }
+            if (!copyFile(src, dst)) {
+                st.put("ok", Boolean.FALSE);
+                st.put("error", "falhou " + src.getAbsolutePath());
+                return st;
+            }
+            done[0] += src.length();
+            st.put("bytes", done[0]);
+            st.put("files", st.optLong("files", 0L) + 1L);
+            long since = done[0] - st.optLong("since", 0L);
+            if (since >= 262144L) {     // 256 KB
+                st.put("since", done[0]);
+                st.put("total", total);
+                bus.event("migrate:progress", st);
+            }
+            return st;
+        } catch (Throwable e) {
+            // O proprio catch pode lancar: JSONObject.put declara JSONException
+            // e um catch nao se protege sozinho. Sem este try, uma falha de disco
+            // viraria um erro de compilacao em vez de um erro de arquivo.
+            try {
+                st.put("ok", Boolean.FALSE);
+                st.put("error", String.valueOf(e.getMessage()));
+            } catch (Throwable ignore) {
+            }
+            return st;
         }
     }
 

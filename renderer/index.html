@@ -1345,6 +1345,19 @@
     </div>
   </div>
 
+  <div id="migrate-modal" class="modal hidden">
+    <div class="modal-box">
+      <h3 data-i18n="mig_title">Movendo a biblioteca</h3>
+      <p class="mig-why" data-i18n="mig_why">Sua biblioteca está em Android/data, que o Android não deixa abrir e o desinstalador apaga. Ela vai para /storage/emulated/0/VitaHub.</p>
+      <div class="mig-path"><span class="mig-from" id="mig-from"></span><br>&rarr;<br><span class="mig-to" id="mig-to"></span></div>
+      <div class="update-bar" id="mig-bar"><div class="update-bar-fill" id="mig-bar-fill"></div><span id="mig-bar-label"></span></div>
+      <p class="mig-safety" data-i18n="mig_safety">A pasta antiga só é apagada depois que a cópia é conferida. Se algo falhar, ela fica intacta.</p>
+      <div class="modal-actions">
+        <button class="btn hidden" id="mig-dismiss" data-i18n="mig_ok">Entendi</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modal" class="modal hidden">
     <div class="modal-box">
       <h3 id="modal-title"></h3>
@@ -1367,6 +1380,7 @@
   <script src="js/install.js"></script>
   <script src="js/apps.js"></script>
   <script src="js/diagnostics.js"></script>
+  <script src="js/shared-migration.js"></script>
   <script src="js/games.js"></script>
   <script src="js/app.js"></script>
 </body>

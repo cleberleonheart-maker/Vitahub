@@ -28,3 +28,5 @@ echo "==> varredura da biblioteca (ponte falsa, sem aparelho)"
 node test/scan.js
 echo "==> migracao da pasta antiga (ponte falsa, sem aparelho)"
 node test/migrate.js
+echo "==> migracao para a pasta compartilhada (ponte falsa, sem aparelho)"
+node test/shared.js

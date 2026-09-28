@@ -1,0 +1,11 @@
+
+/* Migracao da biblioteca para a pasta compartilhada. Reaproveita .modal e
+   .update-bar: a operacao e longa e precisa de uma porcentagem que nao pode
+   dar saltos, senao parece travamento. */
+.mig-why { font-size: 13px; opacity: .8; line-height: 1.5; margin-bottom: 12px; }
+.mig-path {
+  font-size: 12px; opacity: .75; text-align: center; line-height: 1.7;
+  margin-bottom: 14px; word-break: break-all;
+}
+.mig-path .mig-to { color: #2ec27e; font-weight: 600; }
+.mig-safety { font-size: 12px; opacity: .6; line-height: 1.5; margin-top: 12px; }
