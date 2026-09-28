@@ -923,6 +923,56 @@ public class MainActivity extends Activity {
                 t.start();
                 return;
             }
+            case "writeFileAtomic": {
+                // config.json e reescrito a cada lancamento de jogo e contem o
+                // installDir e os favoritos do usuario. FileOutputStream TRUNCA
+                // o arquivo: se o processo morresse no meio da escrita (e o
+                // aparelho mata o app o tempo todo, ver ExitWatchdog), o
+                // config.json ficava pela metade e loadConfig() caia no default
+                // sem aviso -- a biblioteca passava a ser procurada no
+                // armazenamento interno e os jogos "sumiam" sem nada ter sido
+                // apagado. Escreve num .tmp e renomeia: renameTo no mesmo
+                // sistema de arquivos e atomico, entao ou a versao antiga
+                // fica ou a nova, nunca um meio arquivo.
+                final String apath = arg(a, "path", "");
+                final String acontent = a.optString("content", "");
+                final String arid = id;
+                Thread ta = new Thread(new Runnable() {
+                    public void run() {
+                        try {
+                            File f = new File(apath);
+                            if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                            File tmp = new File(apath + ".tmp");
+                            FileOutputStream os = new FileOutputStream(tmp);
+                            try {
+                                os.write(acontent.getBytes("UTF-8"));
+                                os.flush();
+                                // fsync: sem isso o rename pode publicar um
+                                // arquivo cujo conteudo ainda esta no buffer.
+                                try { os.getFD().sync(); } catch (Throwable ignore) { }
+                            } finally {
+                                os.close();
+                            }
+                            if (!tmp.renameTo(f)) {
+                                // Alguns sistemas de arquivos recusam rename por
+                                // cima: apaga o destino e tenta de novo, que e o
+                                // unico caminho sem perder a config nova.
+                                f.delete();
+                                if (!tmp.renameTo(f)) {
+                                    bus.reply(arid, err("nao foi possivel substituir " + apath));
+                                    return;
+                                }
+                            }
+                            bus.reply(arid, Boolean.TRUE);
+                        } catch (Throwable e) {
+                            bus.reply(arid, err(String.valueOf(e.getMessage())));
+                        }
+                    }
+                }, "vitahub-writeatomic");
+                ta.setDaemon(true);
+                ta.start();
+                return;
+            }
             case "writeFile": {
                 final String wpath = arg(a, "path", "");
                 final String content = a.optString("content", "");

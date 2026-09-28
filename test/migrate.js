@@ -33,6 +33,7 @@ function world(spec) {
     sfo: spec.sfo || '',
     title: spec.title || '',
     installDir: spec.installDir || '',
+    corruptConfig: !!spec.corruptConfig,
   });
 }
 
@@ -116,6 +117,52 @@ function world(spec) {
     // mais. Se o rastro ficasse dentro dela, o resumo acusaria para sempre um
     // "jogo sem eboot.bin" que ninguem instalou.
     eq('reposto: contagem limpa', out.scanReport.indexOf('ux0/app: 1 ·') >= 0, true);
+  }
+
+  // installDir num cartao SD: a migracao tem que deixar os jogos na arvore que
+  // a BIBLIOTECA lista, que e a do cartao. Com o alvo fixo em storage/vita os
+  // jogos iam para o armazenamento interno, que listApps() nunca varre: os
+  // dados ficavam intactos e a biblioteca inteira sumia da tela.
+  {
+    const SD = '/storage/1234-5678/VitaHub/vita';
+    const w = world({
+      dirs: [SD + '/ux0/app', SD + '/pspemu/PSP/GAME', LEGACY + '/ux0/app',
+        LEGACY + '/ux0/app/PCSF00001'],
+      files: [LEGACY + '/ux0/app/PCSF00001/eboot.bin'],
+      installDir: SD,
+    });
+    const api = mount(w);
+    const r = await run(api, 'migrate');
+    eq('cartao SD: migrado', r.moved, 1);
+    eq('cartao SD: jogo foi para a arvore do cartao',
+      w.files.has(SD + '/ux0/app/PCSF00001/eboot.bin'), true);
+    eq('cartao SD: nada foi parar no armazenamento interno',
+      w.files.has(NEW + '/ux0/app/PCSF00001/eboot.bin'), false);
+    eq('cartao SD: installDir do usuario foi respeitado', w.installDir, SD);
+    // O que a migracao reporta como arvore tem de ser a que a listagem usa, senao
+    // o console.log de app.js mente sobre onde os jogos estao.
+    eq('cartao SD: arvore reportada e a do cartao', r.engineRoot, SD);
+    const out = await run(api, 'listApps');
+    eq('cartao SD: o jogo aparece na biblioteca', out.length, 1);
+  }
+
+  // config.json corrompido: o default aponta para o armazenamento interno, entao
+  // a biblioteca inteira some da tela. loadConfig() nao pode engolir isso em
+  // silencio -- tem de deixar rastro no log e preservar o arquivo original.
+  {
+    const w = world({
+      dirs: [NEW + '/ux0/app', NEW + '/ux0/app/PCSF00001'],
+      files: [NEW + '/ux0/app/PCSF00001/eboot.bin'],
+      corruptConfig: true,
+    });
+    const api = mount(w);
+    const out = await run(api, 'listApps');
+    eq('config corrompido: a listagem nao quebra', Array.isArray(out), true);
+    // Cai no padrao, e o padrao e onde a listagem deve procurar: o sintoma real
+    // de config quebrado e a biblioteca sumir, nao a tela quebrar.
+    eq('config corrompido: volta a usar a arvore padrao',
+      out.scanReport.indexOf(NEW) === 0, true);
+    eq('config corrompido: o jogo segue visivel', out.length, 1);
   }
 
   process.exit(report() ? 1 : 0);

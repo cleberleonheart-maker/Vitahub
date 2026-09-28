@@ -374,7 +374,17 @@
     try {
       cfg = raw ? Object.assign({}, d, JSON.parse(raw)) : d;
     } catch (e) {
+      // Config corrompida nao pode ser um silencio: o default aponta para o
+      // armazenamento interno, entao a biblioteca inteira -- que pode estar num
+      // cartao SD escolhido pelo usuario -- some da tela sem nenhuma mensagem,
+      // e o unico sinal e o sintoma "meus jogos sumiram". O arquivo original e
+      // preservado em config.json.ruim para o diagnostico.
       cfg = d;
+      call('mark', { tag: 'config.json ilexivel: ' + (e && e.message ? e.message : e) });
+      (async function () {
+        const home = await call('homeDir');
+        await call('writeFile', { path: home + '/config.json.ruim', content: String(raw || '') });
+      })().catch(function () {});
     }
     cfg.settings = Object.assign({}, SETTINGS, cfg.settings && typeof cfg.settings === 'object' ? cfg.settings : {});
     return cfg;
@@ -382,7 +392,11 @@
 
   async function saveConfig() {
     const home = (await call('homeDir')) || '';
-    return call('writeFile', { path: home + '/config.json', content: JSON.stringify(cfg, null, 2) });
+    // Gravacao atomica (tmp + rename) e nao writeFile: config.json guarda o
+    // installDir e os favoritos, e um FileOutputStream truncante deixaria o
+    // arquivo pela metade se o processo morresse no meio -- o aparelho mata o
+    // app com frequencia o bastante para isso nao ser hipotese.
+    return call('writeFileAtomic', { path: home + '/config.json', content: JSON.stringify(cfg, null, 2) });
   }
 
   /**
@@ -947,7 +961,20 @@ checkFirmware: function (region) {
       const self = this;
       return loadConfig().then(async function (c) {
         const storage = (await call('storageDir')) || '';
-        const engineRoot = storage + '/vita';
+        // Onde a BIBLIOTECA olha, e portanto onde a migracao precisa deixar os
+        // jogos. Antes este alvo era storage + '/vita' fixo, o que so coincidia
+        // com o installDir padrao: com o diretorio escolhido num cartao SD ou
+        // pendrive, migrate() movia os jogos da pasta antiga para a arvore
+        // interna, que listApps() nunca lista. Os dados ficavam intactos no
+        // armazenamento do celular e a biblioteca inteira sumia da tela, sem
+        // aviso e sem backup -- o mesmo sintoma de "instalei e nao aparece" que
+        // a migracao existe para resolver. Legacy e o que installDir pode ter
+        // sobrado de uma versao antiga; nesses casos o alvo e o padrao de novo.
+        const legacy = [storage + '/VitaHub', storage];
+        let engineRoot = c.installDir;
+        if (typeof engineRoot !== 'string' || !engineRoot || legacy.indexOf(engineRoot) !== -1) {
+          engineRoot = (await call('defaultDir')) || (storage + '/vita');
+        }
         // repaired: quantas pastas quebradas no destino foram guardadas em
         // .sobrou/ para o jogo da pasta antiga entrar. repairedFrom: quais
         // titulos voltaram -- o nome importa, porque "instalei e sumiu" nao tem
@@ -960,7 +987,6 @@ checkFirmware: function (region) {
         // ainda reescrevia a config para a pasta interna, o que devolvia o
         // usuario ao armazenamento do celular a cada abertura do app.
         const legacyRoots = [storage + '/VitaHub'];
-        const userDir = c.installDir;
         // As duas arvores. A de PSP nunca foi migrada: um jogo de PSP instalado
         // por uma versao antiga ficava preso na pasta antiga para sempre, sem
         // nunca aparecer na biblioteca.
@@ -1009,20 +1035,24 @@ checkFirmware: function (region) {
             }
           }
           // installDir so e reescrito quando a config ainda aponta para uma
-          // das pastas legadas. Reescrever so porque houve movimento devolvia
-          // o usuario ao armazenamento interno mesmo com a arvore inteira num
-          // pendrive escolhido por ele.
-          if (userDir && (legacyRoots.indexOf(userDir) !== -1 || userDir === storage)) {
+          // das pastas legadas (ou nao aponta para nada). Reescrever so porque
+          // houve movimento devolvia o usuario ao armazenamento interno mesmo
+          // com a arvore inteira num pendrive escolhido por ele.
+          const dirLegacy = typeof c.installDir !== 'string' || !c.installDir
+            || legacy.indexOf(c.installDir) !== -1;
+          if (dirLegacy && c.installDir !== engineRoot) {
             c.installDir = engineRoot;
             await saveConfig();
           }
         }
         const pup = storage + '/fw/PSP2UPDAT.PUP';
-        // O firmware e conferido (e instalado) na arvore que a engine vai
-        // usar de verdade: com installDir num pendrive, vs0/sys nao esta em
-        // engineRoot e checar ali dava "firmware ok" para uma arvore sem
-        // firmware nenhum.
-        const fwTree = (typeof c.installDir === 'string' && c.installDir) || engineRoot;
+        // O firmware e conferido e instalado na MESMA arvore que a migracao usa
+        // e que a engine vai ler: sao a mesma arvore por construcao agora. Antes
+        // eram tres noites diferentes -- migrate(), listApps() e o pref-path do
+        // config.yml -- e o firmware acabava instalado numa delas enquanto o
+        // jogo era procurado em outra, o que dava "sem vs0/sys" com tudo certo
+        // no lugar.
+        const fwTree = engineRoot;
         const fwReal = await call('exists', { path: fwTree + '/vs0/sys' });
         if (!fwReal && (c.fwInstalled || (await call('exists', { path: pup })))) {
           out.fw = await self.fwInstall(pup);

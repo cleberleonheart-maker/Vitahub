@@ -996,7 +996,12 @@ const Settings = (() => {
       let vol = volumes.find((v) => v.path === path);
       if (!vol) return;
       // so troca de volume mexe no pref-path e no firmware
-      const oldPath = ((window._cfg && window._cfg.installDir) || '').replace(/\/VitaHub\/vita\/?$/, '');
+      // Compara-se com a ARVORE configurada, e nao com um "volume" derivado
+      // dela: o caminho padrao termina em files/vita, e nao em VitaHub/vita,
+      // de modo que a regex antiga nunca casava e o bloco de firmware disparava
+      // toda vez que o usuario reselecionava o volume que ja estava em uso --
+      // reinstallando o firmware sem necessidade a cada toque.
+      const oldDir = (window._cfg && window._cfg.installDir) || '';
       if (!vol.writable) {
         await ensureStorageAccess();
         await refreshVolumes();
@@ -1023,7 +1028,7 @@ const Settings = (() => {
       // A engine so troca de arvore quando o pref-path e escrito antes da
       // proxima sessao nativa; e o firmware tem de existir na pasta nova,
       // senao nenhum jogo abre ("sem vs0/sys").
-      if (vol.path !== oldPath) {
+      if (dir !== oldDir) {
         await window.vitahub.setPrefPath(dir);
         toast(t('set_volume_fw', ''));
         const fw = await window.vitahub.ensureFirmware(dir);

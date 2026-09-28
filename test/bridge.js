@@ -26,6 +26,7 @@ function newWorld(spec) {
     title: spec.title || '',
     category: spec.category || '',
     installDir: spec.installDir || '',
+    corruptConfig: !!spec.corruptConfig,
   };
 }
 
@@ -46,8 +47,36 @@ function mount(world, opts) {
       let v;
       switch (method) {
         case 'homeDir': v = '/data/user/0/com.vitahub/files'; break;
-        case 'readFile': v = null; break;
+        case 'readFile':
+          // config.json passa por readFile, NAO por um metodo proprio. O harness
+          // respondia null aqui e servia um 'readConfig' que loadConfig() nunca
+          // chama: installDir chegava sempre vazio, entao nenhum teste rodava
+          // com diretorio escolhido pelo usuario -- exatamente o cenario em que
+          // a migracao movia os jogos para a arvore errada.
+          if (/\/config\.json$/.test(a.path || '')) {
+            // JSON truncado: e o que um config.json overwritten pela metade
+            // deixa no disco, e o caso que loadConfig() precisa relatar.
+            v = world.corruptConfig ? '{"installDir": "/storage/emulated/0/x/vi'
+              : world.installDir ? JSON.stringify({ installDir: world.installDir }) : null;
+          } else {
+            v = null;
+          }
+          break;
         case 'storageDir': v = BASE.replace(/\/vita$/, ''); break;
+        case 'writeFileAtomic':
+        case 'writeFile':
+          // Sem isto saveConfig() resolvia null e a config reescrita pela
+          // migracao sumia: o harness nao via a troca de installDir.
+          if (/\/config\.json$/.test(a.path || '')) {
+            try {
+              const j = JSON.parse(a.content || '{}');
+              if (j && typeof j.installDir === 'string') world.installDir = j.installDir;
+              v = true;
+            } catch (e) { v = null; }
+          } else {
+            v = null;
+          }
+          break;
         case 'defaultDir': v = BASE; break;
         case 'readConfig': v = world.installDir ? JSON.stringify({ installDir: world.installDir }) : null; break;
         case 'writeConfig': v = true; break;
