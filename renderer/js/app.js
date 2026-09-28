@@ -431,14 +431,16 @@ async function boot() {
       await window.vitahub.setConfig({ users: legacy });
     }
     try {
-      // Maior que a varredura da biblioteca (5s em vitahub_android.js) + a
-      // montagem da Home. Com 5s de orcamento e varredura de 12s, o timeout
-      // estourava, o render era abandonado no meio e a tela inicial ficava sem
-      // painted: o app abria na selacao de usuario sem nada atras.
-      await withTimeout(Home.render(), 9000, 'Home.render');
-    } catch (e) { console.error('Home.render:', e && e.message); }
-    Wizard.renderUserPick();
+      Wizard.renderUserPick();
+    } catch (e) { console.error('renderUserPick:', e && e.message); }
     showScreen('userpick');
+    // A Home e pintada DEPOIS de a tela de usuario aparecer, nunca antes.
+    // Awaitar o render antes de mostrar a tela mantinha o boot sem nenhuma tela
+    // com .active enquanto a varredura rodava: tela preta no lugar da selecao
+    // de perfil, lida como "o app fechou". A troca de tela nao pode depender da
+    // latencia de uma varredura de disco. A Home fica pronta em segundo plano,
+    // bem antes de o usuario escolher o perfil.
+    Promise.resolve(Home.render()).catch((e) => console.error('Home.render:', e && e.message));
   } else {
     showScreen('wizard');
     Wizard.go('welcome');
