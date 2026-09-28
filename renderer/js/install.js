@@ -620,6 +620,10 @@ const Installer = (() => {
     b.fill.style.width = '100%';
     b.meta.textContent = t('fw_done') + (res.version ? ' · ' + res.version : '');
     toast(t('fw_done'));
+    // O aviso de "falta firmware" do boot (app.js) dispara uma vez so. Se o
+    // vs0/sys sumir de novo -- pasta trocada, apagado pelo usuario -- e preciso
+    // avisar de novo, senao o emulador simplesmente nao liga e ninguem sabe.
+    window.vitahub.setConfig({ fwWarned: false }).catch(function () {});
     // Zera o cache de consulta para os carimbos de versão voltarem do disco.
     fwInfo = null;
     const cfg = await window.vitahub.getConfig();

@@ -26,6 +26,11 @@ function newWorld(spec) {
     title: spec.title || '',
     category: spec.category || '',
     installDir: spec.installDir || '',
+    // Chaves extras do config.json inicial (fwInstalled, fwWarned...). O mundo
+    // so devolvia installDir, entao nao dava para reproduzir o caso que mais
+    // importa aqui: config affirmationando firmware instalado numa pasta que
+    // nao tem vs0/sys.
+    cfgExtra: spec.cfgExtra || null,
     corruptConfig: !!spec.corruptConfig,
     // Bytes por arquivo: a migracao para a pasta compartilhada compara o
     // tamanho de cada arvore antes e depois, entao o mundo precisa ter peso.
@@ -38,6 +43,10 @@ function newWorld(spec) {
     defaultDir: spec.defaultDir || BASE,
     truncateCopy: !!spec.truncateCopy,
     prefPath: spec.prefPath || '',
+    // Todo metodo pedido ao host, em ordem. Sem isto nao da para afirmar que
+    // um caminho NAO inicializou a engine nativa -- o sintoma do crash de boot
+    // era justamente uma chamada que so aparecia em versao com bug.
+    calls: [],
   };
 }
 
@@ -54,6 +63,7 @@ function mount(world, opts) {
   const Bridge = {
     call(method, args, id) {
       const a = JSON.parse(args || '{}');
+      world.calls.push(method);
       if (slow && slow === method) return; // nunca responde: exercita o timeout
       let v;
       switch (method) {
@@ -68,7 +78,11 @@ function mount(world, opts) {
             // JSON truncado: e o que um config.json overwritten pela metade
             // deixa no disco, e o caso que loadConfig() precisa relatar.
             v = world.corruptConfig ? '{"installDir": "/storage/emulated/0/x/vi'
-              : world.installDir ? JSON.stringify({ installDir: world.installDir }) : null;
+              : world.installDir || world.cfgExtra
+                ? JSON.stringify(Object.assign(
+                  world.installDir ? { installDir: world.installDir } : {},
+                  world.cfgExtra || {}))
+                : null;
           } else {
             v = null;
           }
@@ -81,6 +95,10 @@ function mount(world, opts) {
           if (/\/config\.json$/.test(a.path || '')) {
             try {
               const j = JSON.parse(a.content || '{}');
+              // config inteiro, e nao so installDir: a migracao tambem reconcilia
+              // fwInstalled com o que existe em vs0/sys, e um teste que so le
+              // o diretorio nao enxergaria essa metade.
+              world.config = j;
               if (j && typeof j.installDir === 'string') world.installDir = j.installDir;
               v = true;
             } catch (e) { v = null; }

@@ -61,10 +61,18 @@ MANIFEST_VERSION=$(sed -n 's/.*android:versionCode="\([0-9]*\)".*/\1/p' AndroidM
 PREV="$OUT/VitaHub.apk"
 if [ -f "$PREV" ]; then
   PREV_VERSION=$(aapt2 dump badging "$PREV" 2>/dev/null | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)
-  if [ -n "$PREV_VERSION" ] && [ "$MANIFEST_VERSION" -le "$PREV_VERSION" ]; then
-    echo "ERRO: versionCode do manifesto ($MANIFEST_VERSION) <= build anterior ($PREV_VERSION)."
+  if [ -n "$PREV_VERSION" ] && [ "$MANIFEST_VERSION" -lt "$PREV_VERSION" ]; then
+    echo "ERRO: versionCode do manifesto ($MANIFEST_VERSION) < build anterior ($PREV_VERSION)."
     echo "      O Android vai recusar a instalacao por cima. Suba android:versionCode."
     exit 1
+  fi
+  # Igual NAO e erro: release.sh builda de novo depois de um build manual, e
+  # o proprio output da rodada anterior e o que estava sendo comparado. Com "-le"
+  # esse segundo build falhava sempre, com a mensagem de "suba a versao" sendo
+  # exatamente o conselho que o usuario ja tinha seguido. O Android so recusa
+  # DOWNGRADE; instalar por cima da mesma versao e permitido.
+  if [ "$MANIFEST_VERSION" -eq "$PREV_VERSION" ]; then
+    echo "    (rebuild de v$MANIFEST_VERSION)"
   fi
 fi
 echo "==> versionCode: $MANIFEST_VERSION"

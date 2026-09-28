@@ -1155,6 +1155,21 @@ public class EngineActivity extends SDLActivity {
      * ensureNativeSessionInitialized() do Emulator oficial:
      *   storagePath = getExternalFilesDir(null).getAbsolutePath()
      *   NativeLib.init(storagePath)  (se !NativeLib.isInitialized())
+     *
+     * <p>Este e o UNICO lugar do app que ainda inicializa a engine, de proposito.
+     * MainActivity.installFirmwareNative() tambem chamava NativeLib.init, e no
+     * Android 16 (API 36) isso abortava o processo na propria abertura:
+     *
+     * <pre>JNI DETECTED ERROR IN APPLICATION: mid == null
+     * in call to CallStaticObjectMethod
+     * from boolean org.vita3k.emulator.NativeLib.init(java.lang.String)</pre>
+     *
+     * <p>O libVita3K.so resolve ActivityThread.currentApplication() -- o unico
+     * metodo estatico que retorna objeto presente no binario -- com jmethodID
+     * nulo e chama assim mesmo. O defeito e do .so pre-construido e stripped, nao
+     * ha como corrigir daqui; por isso a instalacao de firmware virou manual e o
+     * boot apenas avisa. Se um dia ela aparecer, este metodo volta a poder ser
+     * chamado pelo boot.
      */
     private boolean ensureNativeSessionInitialized() {
         try {

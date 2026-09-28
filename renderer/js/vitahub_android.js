@@ -512,12 +512,13 @@
     c.installDir = to;
     await saveConfig();
     await call('setPrefPath', { path: to });
-    out.fw = await self.ensureFirmware(to);
-    // O FIRMWARE e a ultima coisa que pode dar errado, e ela e a pior: a engine
-    // nativa desta sessao ja foi iniciada com o pref-path ANTIGO, entao
-    // fwInstall pode ter gravado o vs0/sys na arvore que estamos prestes a
-    // apagar. Sem esta checagem a migracao terminava "com sucesso" apagando o
-    // unico firmware do usuario e deixando o emulador sem vs0/sys.
+    out.fw = await self.fwStatus(to);
+    // O FIRMWARE e a ultima coisa que pode dar errado, e ela e a pior. Como
+    // instalar exige a engine nativa -- que aborta o processo no Android 16,
+    // ver fwStatus() -- a unica forma de levar o vs0/sys para a arvore nova
+    // aqui e COPIAR o da origem. Sem esta checagem a migracao terminava
+    // "com sucesso" apagando o unico firmware do usuario e deixando o emulador
+    // sem vs0/sys.
     if (!(await call('exists', { path: to + '/vs0/sys' }))
         && (await call('exists', { path: from + '/vs0' }))) {
       const v = await call('copyTree', { src: from + '/vs0', dst: to + '/vs0' });
@@ -694,23 +695,35 @@
     setPrefPath: function (path) { return call('setPrefPath', { path: path || '' }); },
 
     /**
-     * Garante vs0/sys na arvore escolhida. O firmware e extraido para o
-     * pref-path que estiver ativo na sessao nativa, entao trocar de volume
-     * deixa a arvore nova sem vs0/sys e nenhum jogo abre ate reinstalar.
+     * SO LEITURA: a arvore `dir` ja tem vs0/sys, e ha um .PUP esperando?
+     *
+     * <p>Esta funcao ja foi `ensureFirmware` eInstalava o que faltava. Era a
+     * chamada que matava o app na propria abertura: ela acabava sempre em
+     * NativeLib.init, e o libVita3K.so aborta o processo com
+     *
+     * <pre>JNI DETECTED ERROR IN APPLICATION: mid == null
+     * in call to CallStaticObjectMethod
+     * from boolean org.vita3k.emulator.NativeLib.init(java.lang.String)</pre>
+     *
+     * <p>Motivo: o .so resolve `ActivityThread.currentApplication()` (o unico
+     * metodo estatico que retorna objeto presente no binario) com jmethodID
+     * nulo e usa assim mesmo. A extracao do PUP existe SO dentro da engine --
+     * nao ha NativeLib.installFirmware nem equivalente em Java --, entao nao ha
+     * como instalar firmware aqui sem passar pelo caminho que mata o processo.
+     * A instalacao virou manual (Biblioteca > Sistema > Instalar firmware) e
+     * daqui sobra apenas perguntar.
+     *
+     * <p>ok:false NAO e falha: e "o emulador nao liga ate o usuario
+     * instalar". `pupAvailable` diz se o botao pode instalar sem download.
      */
-    ensureFirmware: function (dir) {
-      const self = this;
+    fwStatus: function (dir) {
       return call('exists', { path: dir + '/vs0/sys' })
         .then(function (has) {
-          if (has) return { ok: true, present: true };
+          if (has) return { ok: true, present: true, missing: false, pupAvailable: false };
           return call('storageDir').then(function (storage) {
             const pup = (storage || '') + '/fw/PSP2UPDAT.PUP';
             return call('exists', { path: pup }).then(function (hasPup) {
-              if (!hasPup) return { ok: false, missing: true };
-              return self.fwInstall(pup).then(function (r) {
-                if (r && r.ok) return { ok: true, present: false, installed: true, version: r.version };
-                return { ok: false, error: (r && r.error) || 'falha ao instalar o firmware' };
-              });
+              return { ok: false, present: false, missing: true, pupAvailable: hasPup };
             });
           });
         });
@@ -1196,22 +1209,33 @@ checkFirmware: function (region) {
             await saveConfig();
           }
         }
-        const pup = storage + '/fw/PSP2UPDAT.PUP';
-        // O firmware e conferido e instalado na MESMA arvore que a migracao usa
-        // e que a engine vai ler: sao a mesma arvore por construcao agora. Antes
+        // O firmware e conferido na MESMA arvore que a migracao usa e que a
+        // engine vai ler: sao a mesma arvore por construcao agora. Antes
         // eram tres noites diferentes -- migrate(), listApps() e o pref-path do
         // config.yml -- e o firmware acabava instalado numa delas enquanto o
         // jogo era procurado em outra, o que dava "sem vs0/sys" com tudo certo
         // no lugar.
         const fwTree = engineRoot;
         const fwReal = await call('exists', { path: fwTree + '/vs0/sys' });
-        if (!fwReal && (c.fwInstalled || (await call('exists', { path: pup })))) {
-          out.fw = await self.fwInstall(pup);
-          if (out.fw && out.fw.ok) {
-            c.fwInstalled = true;
-            c.fwVersion = String(out.fw.version || '');
-            await saveConfig();
-          }
+        // NUNCA instalar firmware aqui. Este era o gatilho do crash: o boot
+        // chegava nesta linha com a arvore escolhida sem vs0/sys, chamava
+        // fwInstall -> NativeLib.init, e o processo morria com "JNI DETECTED
+        // ERROR IN APPLICATION: mid == null in call to CallStaticObjectMethod"
+        // ANTES de a tela de usuario aparecer -- o usuario so via o app fechar.
+        // O boot agora apenas pergunta e avisa; instalar e escolha do usuario
+        // (Biblioteca > Sistema > Instalar firmware).
+        out.fw = await self.fwStatus(fwTree);
+        // `fwInstalled` no config e o que a Biblioteca mostra como carimbo de
+        // versao. Depois que a arvore escolhida muda de pasta, ele continua
+        // "true" da install antiga e a tela mente: diz que ha firmware numa
+        // pasta onde nao ha, e o emulador nao liga sem explicacao. Reconciliar
+        // com o disco e o que faz o botao aparecer onde o usuario precisa
+        // clicar -- e o unico jeito de o app nao voltar a inicializar a engine
+        // por conta propria.
+        if (c.fwInstalled !== fwReal) {
+          c.fwInstalled = fwReal;
+          if (!fwReal) c.fwVersion = '';
+          await saveConfig();
         }
         return out;
       });

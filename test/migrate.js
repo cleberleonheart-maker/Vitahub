@@ -33,6 +33,7 @@ function world(spec) {
     sfo: spec.sfo || '',
     title: spec.title || '',
     installDir: spec.installDir || '',
+    cfgExtra: spec.cfgExtra || null,
     corruptConfig: !!spec.corruptConfig,
   });
 }
@@ -163,6 +164,45 @@ function world(spec) {
     eq('config corrompido: volta a usar a arvore padrao',
       out.scanReport.indexOf(NEW) === 0, true);
     eq('config corrompido: o jogo segue visivel', out.length, 1);
+  }
+
+  // O BOOT NAO PODE INICIALIZAR A ENGINE. Este e o teste do crash de abertura.
+  //
+  // migrate() recebia a arvore escolhida sem vs0/sys, chamava fwInstall ->
+  // NativeLib.init, e o libVita3K.so abortava o processo no Android 16 com
+  // "JNI DETECTED ERROR IN APPLICATION: mid == null in call to
+  // CallStaticObjectMethod". O usuario so via o app fechar, antes da tela de
+  // perfil. A extracao do PUP existe SO dentro da engine, entao a unica saida e
+  // perguntar e avisar -- nunca instalar sozinho.
+  {
+    const w = world({
+      // Ha firmware pronto em disco, a arvore escolhida nao tem vs0/sys e o
+      // config AFIRMA que ha firmware instalado (instalado numa pasta que o
+      // usuario trocou depois). Exato o cenario que fazia o boot sair sozinho
+      // para extrair -- e que deixava a tela mentindo.
+      files: [STORAGE + '/fw/PSP2UPDAT.PUP'],
+      cfgExtra: { fwInstalled: true, fwVersion: '3.74' },
+    });
+    const api = mount(w);
+    const r = await run(api, 'migrate');
+    eq('boot: a engine NAO e inicializada', w.calls.indexOf('fwInstall'), -1);
+    eq('boot: o fwInstall nao aparece em nenhuma forma', w.calls.join(',').indexOf('fwInstall'), -1);
+    eq('boot: falta de firmware e reportada', r.fw.missing, true);
+    eq('boot: o PUP disponivel e apontado para a UI', r.fw.pupAvailable, true);
+    // fwInstalled true com a pasta vazia e o que fazia a tela mentir ("firmware
+    // instalado") enquanto o emulador nao ligava. Reconciliado com o disco.
+    eq('boot: fwInstalled nao sobrevive sem vs0/sys', w.config.fwInstalled, false);
+    eq('boot: a versao mentirosa e limpa junto', w.config.fwVersion, '');
+  }
+
+  // Contrario do anterior: com vs0/sys na arvore, nada a fazer e nada a avisar.
+  {
+    const w = world({ dirs: [NEW + '/vs0/sys'], cfgExtra: { fwInstalled: false } });
+    const api = mount(w);
+    const r = await run(api, 'migrate');
+    eq('boot com firmware: a engine NAO e inicializada', w.calls.indexOf('fwInstall'), -1);
+    eq('boot com firmware: nada falta', r.fw.missing, false);
+    eq('boot com firmware: fwInstalled vira true', w.config.fwInstalled, true);
   }
 
   process.exit(report() ? 1 : 0);

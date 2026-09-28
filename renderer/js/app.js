@@ -433,6 +433,17 @@ async function boot() {
       toast('Jogos repostos: ' + r.repairedFrom.join(', '));
     }
     if (r && r.moved) console.log('migrate: ' + r.moved + ' jogo(s) movidos de ' + r.engineRoot);
+    // O boot nao instala mais firmware: a engine nativa aborta o processo no
+    // Android 16 ("mid == null in call to CallStaticObjectMethod" dentro de
+    // NativeLib.init), e a extracao do PUP so existe dentro dela. Quando falta
+    // vs0/sys o emulador nao liga, entao o usuario precisa saber -- mas uma vez
+    // so. Repetir o aviso a cada abertura vira ruido e ja nao ensina nada.
+    if (r && r.fw && r.fw.missing && !cfg.fwWarned) {
+      toast(t('fw_skip_warn'));
+      window.vitahub.setConfig({ fwWarned: true }).catch(function (e) {
+        console.error('fwWarned:', e && e.message);
+      });
+    }
     return r;
   }).catch(function (e) {
     console.error('migrate:', (e && e.message) || e);
