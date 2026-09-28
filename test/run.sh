@@ -30,3 +30,6 @@ echo "==> migracao da pasta antiga (ponte falsa, sem aparelho)"
 node test/migrate.js
 echo "==> migracao para a pasta compartilhada (ponte falsa, sem aparelho)"
 node test/shared.js
+
+echo "==> fiação do renderer"
+node test/wiring.js

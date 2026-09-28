@@ -456,3 +456,8 @@ const Home = (() => {
     entrance,
   };
 })();
+
+// Ver a nota em diagnostics.js: `const X = (() => ...)()` nao cria window.X.
+// `app.js` checa `window.Games` ao trocar de tela, e essa guarda era falsa.
+window.Home = Home;
+

@@ -663,3 +663,8 @@ const Installer = (() => {
 
   return { init: bind, run, refreshLibrary, cancelFlow, selectLibTab };
 })();
+
+// Ver a nota em diagnostics.js: `const X = (() => ...)()` cria so um binding
+// global lexico e NAO uma propriedade em window. Quem procura por window.Installer
+// nao encontra. Exposto aqui para que as guardas escritas com window.Installer valham.
+window.Installer = Installer;

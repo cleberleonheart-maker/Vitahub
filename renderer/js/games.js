@@ -132,3 +132,8 @@ const Games = (() => {
 
   return { init, launch, hide, exit, isActive: () => active };
 })();
+
+// Ver a nota em diagnostics.js: `const X = (() => ...)()` nao cria window.X, e
+// `if (window.Games)` em app.js era sempre falso.
+window.Games = Games;
+

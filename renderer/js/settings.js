@@ -1113,3 +1113,8 @@ const Settings = (() => {
     },
   };
 })();
+
+// Ver a nota em diagnostics.js: `const X = (() => ...)()` cria so um binding
+// global lexico e NAO uma propriedade em window. Quem procura por window.Settings
+// nao encontra. Exposto aqui para que as guardas escritas com window.Settings valham.
+window.Settings = Settings;

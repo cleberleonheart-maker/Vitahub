@@ -398,3 +398,8 @@ const GameDetail = (() => {
 
   return { init, open, selectTab };
 })();
+
+// Ver a nota em diagnostics.js: `const X = (() => ...)()` cria so um binding
+// global lexico e NAO uma propriedade em window. Quem procura por window.GameDetail
+// nao encontra. Exposto aqui para que as guardas escritas com window.GameDetail valham.
+window.GameDetail = GameDetail;

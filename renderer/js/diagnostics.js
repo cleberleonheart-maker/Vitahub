@@ -149,3 +149,14 @@ const Diagnostics = (() => {
 
   return { init: loadExit, bind, toggle, select, reload: load };
 })();
+
+// `const Diagnostics = ...` no topo de um script classico cria um binding global
+// LEXICO: ele e visivel como `Diagnostics` para os outros scripts, mas NAO cria
+// uma propriedade em `window`. Todo `if (window.Diagnostics)` do app era, por
+// isso, sempre falso -- e quem usava o nome puro funcionava. O resultado foi o
+// diagnostico com o botao de copiar morto: `bind()`, que liga os botoes do
+// visor de log, nunca rodou, enquanto a nota de saida aparecia normalmente
+// porque `init()` e chamado pelo nome puro. Expor explicitamente e o que torna
+// as guardas existentes verdadeiras.
+window.Diagnostics = Diagnostics;
+

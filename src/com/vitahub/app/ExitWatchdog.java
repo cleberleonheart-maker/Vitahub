@@ -32,7 +32,26 @@ import java.util.List;
  */
 final class ExitWatchdog {
 
-    private static final int MAX_TRACE_LINES = 40;
+    // O limite e de frames, nao de linhas. Ver readTrace: o cabecalho do
+    // tombstone nao entra nesta contagem.
+    private static final int MAX_FRAMES = 48;
+
+    /**
+     * Linha de cabecalho que vale a pena no log. Para um SIGABRT, a que importa
+     * e a mensagem de abort; as demais servem para identificar qual processo e
+     * qual build morreu, e sao poucas.
+     */
+    private static boolean interestingHeader(String t) {
+        return t.startsWith("signal ")
+                || t.startsWith("Abort message")
+                || t.startsWith("Build fingerprint")
+                || t.startsWith("Cmdline")
+                || t.startsWith("Cmd line")
+                || t.startsWith("pid:")
+                || t.startsWith("Cause")
+                || t.startsWith("Exception")
+                || t.contains("debuggerd");
+    }
 
     private ExitWatchdog() {
     }
@@ -137,9 +156,21 @@ final class ExitWatchdog {
     }
 
     /**
-     * O trace nativo do Android e texto com frames do processo morto. Trazer o
-     * inicio para o log e o que permite ligar o sinal a um metodo, porque o
-     * resto do trace e ruido de biblioteca do sistema.
+     * O trace nativo do Android e texto, mas nao texto qualquer: o topo traz o
+     * cabecalho do tombstone (build fingerprint, cmdline, pid) e so mais abaixo
+     * vem a mensagem de abort e a pilha. Trazer "as primeiras 40 linhas" seemed
+     * o jeito obvio e e o jeito errado: o cabecalho come o orcamento e os frames
+     * -- que sao a unica parte que liga o sinal a um metodo -- ficam de fora.
+     *
+     * <p>Entao o trace e filtrado por conteudo, nao por posicao: a mensagem de
+     * abort ("unhandled C++ exception", "assertion failed", "glibc detected an
+     * invalid pointer"...) e os frames. Para SIGABRT a mensagem e a resposta
+     * principal -- ela diz o motivo em uma linha, e o Android a entrega mesmo
+     * quando a pilha vem sem simbolos.
+     *
+     * <p>Os frames sao deduplicados de proposito: o tombstone imprime a pilha
+     * duas vezes (no topo e de novo em "backtrace:"), e repetir o mesmo frame
+     * gasta o limite e esconde os frames mais fundos.
      */
     private static String readTrace(ApplicationExitInfo info) {
         java.io.InputStream in = null;
@@ -148,16 +179,33 @@ final class ExitWatchdog {
             in = info.getTraceInputStream();
             if (in == null) return null;
             r = new BufferedReader(new InputStreamReader(in, "UTF-8"));
-            StringBuilder sb = new StringBuilder();
+            StringBuilder head = new StringBuilder();
+            StringBuilder frames = new StringBuilder();
+            java.util.Set<String> seen = new java.util.HashSet<String>();
             String line;
-            int n = 0;
-            while ((line = r.readLine()) != null && n < MAX_TRACE_LINES) {
+            int guard = 0;
+            int frameCount = 0;
+            while ((line = r.readLine()) != null && guard++ < 4000) {
                 String t = line.trim();
                 if (t.isEmpty()) continue;
-                sb.append("    ").append(t).append('\n');
-                n++;
+
+                boolean isFrame = t.matches("^#\\d+\\s.*") || t.contains(">>> com.vitahub.app <<<");
+                if (isFrame) {
+                    if (frameCount < MAX_FRAMES && seen.add(t)) {
+                        frames.append("    ").append(t).append('\n');
+                        frameCount++;
+                    }
+                    continue;
+                }
+                // A mensagem de abort e o que diz o motivo do SIGABRT.
+                if (head.length() < 4000 && interestingHeader(t)) {
+                    head.append("    ").append(t).append('\n');
+                }
             }
-            return sb.length() == 0 ? null : sb.toString();
+            String h = head.toString();
+            String f = frames.toString();
+            if (h.isEmpty() && f.isEmpty()) return null;
+            return h + (h.isEmpty() || f.isEmpty() ? "" : "\n") + f;
         } catch (Throwable t) {
             return null;
         } finally {

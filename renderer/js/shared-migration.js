@@ -129,3 +129,9 @@ const SharedMigration = (() => {
 
   return { start, bind, hide };
 })();
+
+// Ver a nota em diagnostics.js: `const X = (() => ...)()` nao cria window.X, e
+// por isso `window.SharedMigration.bind()` nunca rodou -- o botao de dispensar
+// a migracao ficava sem listener.
+window.SharedMigration = SharedMigration;
+

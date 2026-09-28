@@ -119,3 +119,8 @@ const Lock = (() => {
 
   return { init: async () => { bind(); await render(); }, refresh: render, unlock, stopClock };
 })();
+
+// Ver a nota em diagnostics.js: `const X = (() => ...)()` cria so um binding
+// global lexico e NAO uma propriedade em window. Quem procura por window.Lock
+// nao encontra. Exposto aqui para que as guardas escritas com window.Lock valham.
+window.Lock = Lock;

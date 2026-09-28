@@ -469,3 +469,8 @@ const Wizard = (() => {
 
   return { init: bind, go, renderUserPick, selectUser };
 })();
+
+// Ver a nota em diagnostics.js: `const X = (() => ...)()` cria so um binding
+// global lexico e NAO uma propriedade em window. Quem procura por window.Wizard
+// nao encontra. Exposto aqui para que as guardas escritas com window.Wizard valham.
+window.Wizard = Wizard;
