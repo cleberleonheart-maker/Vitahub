@@ -420,7 +420,18 @@ async function boot() {
     applyI18n();
   } catch (e) { console.error('applyI18n:', e && e.message); }
 
-  const mig = window.vitahub.migrate().catch(function (e) {
+  // A migracao devolvia moved/skipped e ninguem lia: uma pasta quebrada no
+  // destino deixava o jogo do usuario preso na pasta antiga, a biblioteca
+  // reportava "0 de 1" e a tela nao dizia nada. Agora o que foi reparado
+  // aparece -- e o nome do titulo, que e o que permite conferir se resolveu.
+  const mig = window.vitahub.migrate().then(function (r) {
+    if (r && r.repairedFrom && r.repairedFrom.length) {
+      console.log('migrate: titulos repostos: ' + r.repairedFrom.join(', '));
+      toast('Jogos repostos: ' + r.repairedFrom.join(', '));
+    }
+    if (r && r.moved) console.log('migrate: ' + r.moved + ' jogo(s) movidos de ' + r.engineRoot);
+    return r;
+  }).catch(function (e) {
     console.error('migrate:', (e && e.message) || e);
   });
 

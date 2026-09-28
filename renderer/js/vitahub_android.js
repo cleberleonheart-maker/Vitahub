@@ -948,8 +948,11 @@ checkFirmware: function (region) {
       return loadConfig().then(async function (c) {
         const storage = (await call('storageDir')) || '';
         const engineRoot = storage + '/vita';
-        const dest = engineRoot + '/ux0/app';
-        const out = { moved: 0, skipped: 0, fw: null, engineRoot: engineRoot };
+        // repaired: quantas pastas quebradas no destino foram guardadas em
+        // .sobrou/ para o jogo da pasta antiga entrar. repairedFrom: quais
+        // titulos voltaram -- o nome importa, porque "instalei e sumiu" nao tem
+        // conserto util sem dizer qual.
+        const out = { moved: 0, skipped: 0, repaired: 0, repairedFrom: [], fw: null, engineRoot: engineRoot };
         // Migracao de uma versao so: as pastas ANTIGAS do proprio app. O
         // installDir escolhido pelo usuario nao entra aqui — um cartao SD ou
         // um pendrive escolhido em Config > Armazenamento e destino, nao
@@ -958,23 +961,51 @@ checkFirmware: function (region) {
         // usuario ao armazenamento do celular a cada abertura do app.
         const legacyRoots = [storage + '/VitaHub'];
         const userDir = c.installDir;
+        // As duas arvores. A de PSP nunca foi migrada: um jogo de PSP instalado
+        // por uma versao antiga ficava preso na pasta antiga para sempre, sem
+        // nunca aparecer na biblioteca.
+        const trees = ['ux0/app', 'pspemu/PSP/GAME'];
+        // O que prova que a pasta e um jogo. Vale para as duas arvores: um
+        // Vita pode vir com EBOOT.PBP na raiz (pkg de PSP reempacotado) e um
+        // PSP sempre usa EBOOT.PBP.
+        const BOOTS = ['/eboot.bin', '/EBOOT.PBP'];
+        const isGame = async function (dir) {
+          for (const b of BOOTS) {
+            if (await call('exists', { path: dir + b })) return true;
+          }
+          return false;
+        };
         if (legacyRoots.length) {
-          await call('mkdirs', { path: dest });
           for (const root of legacyRoots) {
-            const apps = await call('listDir', { path: root + '/ux0/app' });
-            if (!Array.isArray(apps)) continue;
-            for (const a of apps) {
-              if (!a.d) continue;
-              const from = root + '/ux0/app/' + a.n;
-              const to = dest + '/' + a.n;
-              // Destino ja ocupado:_nao_ apaga a origem. A versao anterior
-              // resolvia o conflito com deleteFile(from), destruindo a copia do
-              // usuario no diretorio escolhido sem nenhum aviso.
-              if (await call('exists', { path: to })) {
-                out.skipped++;
-                continue;
+            for (const tree of trees) {
+              await call('mkdirs', { path: engineRoot + '/' + tree });
+              const apps = await call('listDir', { path: root + '/' + tree });
+              if (!Array.isArray(apps)) continue;
+              for (const a of apps) {
+                if (!a.d) continue;
+                const from = root + '/' + tree + '/' + a.n;
+                const to = engineRoot + '/' + tree + '/' + a.n;
+                // O destino so conta como ocupado se for um JOGO. Pular por
+                // existir deixava o jogo do usuario preso na pasta antiga sempre
+                // que o destino era o rastro de uma extracao que falhou: a
+                // biblioteca lia a arvore nova, encontrava uma pasta sem
+                // eboot.bin e reportava "0 de 1", com o jogo de verdade ainda
+                // na pasta antiga e nenhuma mensagem na tela.
+                if (await isGame(to)) { out.skipped++; continue; }
+                // Sobra que NAO e jogo (pasta vazia ou extracao parcial): vai
+                // para .sobrou/ em vez de ser apagada, para nao perder nada do
+                // usuario. Fica FORA de ux0/app de proposito: binnen da arvore
+                // de jogos a pasta entraria na varredura como mais um jogo sem
+                // eboot.bin, e o resumo ficaria complaining para sempre.
+                if (await call('exists', { path: to })) {
+                  const aside = engineRoot + '/.sobrou/' + tree.replace(/\//g, '_') + '/' + a.n;
+                  if (await call('exists', { path: aside })) { out.skipped++; continue; }
+                  if (!(await call('move', { src: to, dst: aside }))) { out.skipped++; continue; }
+                  out.repaired++;
+                }
+                if (await call('move', { src: from, dst: to })) { out.moved++; out.repairedFrom.push(a.n); }
+                else out.skipped++;
               }
-              if (await call('move', { src: from, dst: to })) out.moved++;
             }
           }
           // installDir so e reescrito quando a config ainda aponta para uma

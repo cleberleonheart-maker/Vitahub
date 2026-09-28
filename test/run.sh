@@ -20,8 +20,11 @@ echo "==> compila e roda o harness"
 javac -nowarn -cp "$CLASSES" -d "$CLASSES" test/PkgTest.java
 java -cp "$CLASSES" -Dvitahub.test.work="$WORK" PkgTest
 
-# A varredura da biblioteca roda so dentro do WebView do Android, entao nenhuma
-# das suites acima tocava nela. Um erro de contagem ali e indistinguivel de
-# "nada instalado" para quem ve a tela, e sair disso custava um APK por tentativa.
+# A varredura e a migracao rodam so dentro do WebView do Android, entao nenhuma
+# das suites acima as tocava. Erro de contagem ali e indistinguivel de "nada
+# instalado" para quem ve a tela, e descobrir um custava um APK por tentativa --
+# o mesmo defeito chegou a custar cinco.
 echo "==> varredura da biblioteca (ponte falsa, sem aparelho)"
 node test/scan.js
+echo "==> migracao da pasta antiga (ponte falsa, sem aparelho)"
+node test/migrate.js
