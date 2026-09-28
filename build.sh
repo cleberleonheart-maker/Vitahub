@@ -191,7 +191,10 @@ javac -source 8 -target 8 -bootclasspath "$AJ" \
   -d "$OUT/classes" @"$OUT/sources.txt" "$OUT/gen/com/vitahub/app/R.java"
 
 echo "==> d8 (app)"
-"$BT/d8" --lib "$AJ" --classpath "$OUT/stubs-classes" --release --min-api 26 \
+# O wrapper do d8 pede -Xmx2G por conta propria e ignora JAVA_OPTS, o que
+# mata o build por pressao de memoria: sao ~70 classes do app, e o dex da
+# engine sai de outro passo. O limite e passado com -J, que o wrapper honra.
+"$BT/d8" -JXmx512m --lib "$AJ" --classpath "$OUT/stubs-classes" --release --min-api 26 \
   --output "$OUT/dex" $(find "$OUT/classes" -name '*.class')
 
 echo "==> classes2.dex (engine)"

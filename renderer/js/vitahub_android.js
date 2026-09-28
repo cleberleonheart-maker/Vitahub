@@ -784,20 +784,31 @@ checkFirmware: function (region) {
       const self = this;
       return self.installDir().then(async function (base) {
         const out = [];
-        // listDir devolve null quando a pasta nao existe ou nao pode ser lida.
-        // Antes esse null era engolido e o resultado era uma lista vazia, que a
-        // tela lia como "nenhum jogo instalado" -- o oposto do que estava
-        // acontecendo quando o jogo acabara de ser instalado. O motivo vai
-        // junto para a interface mostrar o erro em vez de um "vazio" falso.
+        // listDir devolve null tanto para pasta ausente quanto para pasta que
+        // existe mas nao pode ser lida, e os dois casos precisam de tratamento
+        // oposto: ausente e o normal (pspemu/PSP/GAME so nasce no primeiro jogo
+        // de PSP) e nao pode virar aviso, senao todo aparelho so com jogos Vita
+        // recebe "nao consegui ler a pasta" com a biblioteca inteira no ar.
+        // So "existe e nao le" e problema, e o resumo das duas arvores vai junto
+        // para a tela mostrar quantos jogos foram realmente encontrados.
         const problems = [];
+        const summary = [];
         const scan = async function (rel, kind, boot) {
           const root = base + '/' + rel;
           const apps = await call('listDir', { path: root });
           if (!Array.isArray(apps)) {
-            problems.push(root);
-            console.log('listApps: nao consegui ler ' + root);
+            const there = await call('exists', { path: root });
+            if (there) {
+              problems.push(root);
+              console.log('listApps: ' + root + ' existe mas nao pode ser lida');
+              summary.push(rel + ': ' + t('library_unreadable'));
+            } else {
+              console.log('listApps: ' + root + ' ainda nao existe');
+              summary.push(rel + ': ' + t('library_absent'));
+            }
             return;
           }
+          const before = out.length;
           for (const entry of apps) {
             if (!entry.d) continue;
             const dir = base + '/' + rel + '/' + entry.n;
@@ -827,11 +838,15 @@ checkFirmware: function (region) {
               out.push({ titleId: entry.n, icon: '', title: '', kind: kind, dir: dir });
             }
           }
+          summary.push(rel + ': ' + (out.length - before));
         };
         await scan('ux0/app', 'vita', 'eboot.bin');
         await scan('pspemu/PSP/GAME', 'psp', 'EBOOT.PBP');
         out.installDir = base;
-        out.listError = problems.length ? t('library_unreadable') + ' (' + problems.join(', ') + ')' : '';
+        out.scanReport = base + ' · ' + summary.join(' · ');
+        out.listError = problems.length
+          ? t('library_unreadable') + ' (' + problems.join(', ') + ') · ' + summary.join(' · ')
+          : '';
         return out;
       });
     },
