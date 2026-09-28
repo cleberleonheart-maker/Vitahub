@@ -523,6 +523,19 @@ async function boot() {
 
 window.addEventListener('DOMContentLoaded', boot);
 
+// Voltar do emulador, destravar pelo usuario ou abrir o app de novo nao conta
+// como troca de tela: a Home ja esta "ativa" por baixo da tela de bloqueio, e
+// showScreen() nem chega a ser chamado. Sem isto, a lista de jogos e o resumo da
+// varredura ficam nos valores da renderizacao antiga -- foi assim que um jogo
+// instalado aparecia como 0 mesmo funcionando.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (showing !== 'home') return;
+  Promise.resolve()
+    .then(() => Home.refresh())
+    .catch((e) => console.error('refresh ao voltar:', (e && e.message) || e));
+});
+
 window.mod = { Lock, Home, Wizard, Settings, Installer, SystemApps };
 
 document.addEventListener('contextmenu', (e) => e.preventDefault());

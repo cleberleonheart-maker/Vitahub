@@ -828,14 +828,22 @@ checkFirmware: function (region) {
         // para a tela mostrar quantos jogos foram realmente encontrados.
         const problems = [];
         const summary = [];
-        // Limite por leitura: a varredura inteira tem varias chamadas em
-        // sequencia, e uma delas presa ja impede a lista de aparecer.
-        const SCAN_MS = 8000;
+        // Orcamento da varredura, em duas camadas. Lock.js so espera
+        // Home.refresh() por 8s antes de abrir a tela inicial: se a varredura
+        // estourar esse limite, comTimeout abre a Home com o render ANTERIOR e o
+        // sintoma e uma lista parada -- foi assim que um 0 ficou congelado na
+        // tela mesmo com o jogo instalado e funcionando. Entao o total fica bem
+        // abaixo do orcamento do render, e cada leitura tem limite proprio: uma
+        // listagem local leva milissegundos, 4s ja e eventualidade.
+        const SCAN_MS = 4000;
+        const SCAN_TOTAL_MS = 12000;
+        const t0 = Date.now();
+        const left = function () { return Math.max(500, Math.min(SCAN_MS, SCAN_TOTAL_MS - (Date.now() - t0))); };
         const scan = async function (rel, kind, boot) {
           const root = base + '/' + rel;
-          const apps = await call('listDir', { path: root }, SCAN_MS);
+          const apps = await call('listDir', { path: root }, left());
           if (!Array.isArray(apps)) {
-            const there = await call('exists', { path: root }, SCAN_MS);
+            const there = await call('exists', { path: root }, left());
             if (there) {
               problems.push(root);
               console.log('listApps: ' + root + ' existe mas nao pode ser lida');
@@ -847,13 +855,16 @@ checkFirmware: function (region) {
             return;
           }
           const before = out.length;
+          let seen = 0;
           for (const entry of apps) {
             if (!entry.d) continue;
+            seen++;
+            if (Date.now() - t0 > SCAN_TOTAL_MS) break;
             const dir = base + '/' + rel + '/' + entry.n;
-            if (!(await call('exists', { path: dir + '/' + boot }, SCAN_MS))) continue;
+            if (!(await call('exists', { path: dir + '/' + boot }, left()))) continue;
             let title = '';
             if (kind === 'vita') {
-              title = String((await call('sfoTitle', { path: dir + '/sce_sys/param.sfo' }, SCAN_MS)) || '');
+              title = String((await call('sfoTitle', { path: dir + '/sce_sys/param.sfo' }, left())) || '');
               // Titulo de sistema nao e jogo. O proprio instalador de firmware
               // deixa o AUTOPLUG0 em ux0/app, e a varredura o pegava como se
               // fosse um jogo: abrir o atualizador dentro do emulador quebra a
@@ -863,7 +874,7 @@ checkFirmware: function (region) {
                 continue;
               }
               if (title) {
-                const cat = String((await call('sfoCategory', { path: dir + '/sce_sys/param.sfo' }, SCAN_MS)) || '');
+                const cat = String((await call('sfoCategory', { path: dir + '/sce_sys/param.sfo' }, left())) || '');
                 if (cat === 'sys') {
                   console.log('listApps: titulo de sistema ignorado (sys): ' + entry.n);
                   continue;
@@ -876,7 +887,11 @@ checkFirmware: function (region) {
               out.push({ titleId: entry.n, icon: '', title: '', kind: kind, dir: dir });
             }
           }
-          summary.push(rel + ': ' + (out.length - before));
+          // "0" sozinho nao distingue "a pasta veio vazia" de "os jogos foram
+          // barrados pela checagem de eboot". Quando os numeros nao batem, a
+          // linha passa a mostrar "jogos de pastas" para o diagnostico valer.
+          const found = out.length - before;
+          summary.push(rel + ': ' + found + (seen !== found ? ' de ' + seen : ''));
         };
         await scan('ux0/app', 'vita', 'eboot.bin');
         await scan('pspemu/PSP/GAME', 'psp', 'EBOOT.PBP');
