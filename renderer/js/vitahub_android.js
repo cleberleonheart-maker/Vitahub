@@ -12,6 +12,10 @@
   const pending = {};
   const events = {};
   let seq = 0;
+  // Quantas chamadas estouraram o timeout. Sem isso, uma leitura expirada
+  // devolvia null igual a uma leitura que respondeu "nao existe", e a varredura
+  // descartava um jogo valido como se a pasta estivesse vazia.
+  const stats = { timeouts: 0 };
 
   function call(method, args, timeoutMs) {
     return new Promise(function (resolve) {
@@ -34,6 +38,7 @@
       if (timeoutMs) {
         timer = setTimeout(function () {
           console.warn('VitaHub: sem resposta do host para ' + method + ' em ' + timeoutMs + 'ms');
+          stats.timeouts++;
           finish(null);
         }, timeoutMs);
       }
@@ -857,12 +862,17 @@ checkFirmware: function (region) {
           }
           const before = out.length;
           let seen = 0;
+          let noBoot = 0;
+          let expired = 0;
           for (const entry of apps) {
             if (!entry.d) continue;
             seen++;
             if (Date.now() - t0 > SCAN_TOTAL_MS) break;
             const dir = base + '/' + rel + '/' + entry.n;
-            if (!(await call('exists', { path: dir + '/' + boot }, left()))) continue;
+            const mark = stats.timeouts;
+            const hasBoot = await call('exists', { path: dir + '/' + boot }, left());
+            if (stats.timeouts > mark) { expired++; continue; }
+            if (!hasBoot) { noBoot++; continue; }
             let title = '';
             if (kind === 'vita') {
               title = String((await call('sfoTitle', { path: dir + '/sce_sys/param.sfo' }, left())) || '');
@@ -888,11 +898,17 @@ checkFirmware: function (region) {
               out.push({ titleId: entry.n, icon: '', title: '', kind: kind, dir: dir });
             }
           }
-          // "0" sozinho nao distingue "a pasta veio vazia" de "os jogos foram
-          // barrados pela checagem de eboot". Quando os numeros nao batem, a
-          // linha passa a mostrar "jogos de pastas" para o diagnostico valer.
+          // A linha precisa dizer por que um jogo faltou, nao so quantos
+          // faltaram: "0 de 1" tanto descreve uma pasta cuja extracao nao
+          // completou quanto um jogo valido descartado por leitura expirada,
+          // e as duas causas pedem consertos opostos.
           const found = out.length - before;
-          summary.push(rel + ': ' + found + (seen !== found ? ' de ' + seen : ''));
+          const why = [];
+          if (noBoot) why.push(noBoot + ' sem ' + boot);
+          if (expired) why.push(expired + ' leitura expirou');
+          summary.push(rel + ': ' + found
+            + (seen !== found ? ' de ' + seen : '')
+            + (why.length ? ' (' + why.join(', ') + ')' : ''));
         };
         await scan('ux0/app', 'vita', 'eboot.bin');
         await scan('pspemu/PSP/GAME', 'psp', 'EBOOT.PBP');
