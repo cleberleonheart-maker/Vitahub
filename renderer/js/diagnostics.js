@@ -111,6 +111,18 @@ const Diagnostics = (() => {
     });
     const refresh = el('logview-refresh');
     if (refresh) refresh.addEventListener('click', load);
+    // Copia o log inteiro para a area de transferencia. O arquivo vive em
+    // Android/data, que o seletor de arquivo do Android 11+ nao deixa abrir e
+    // o gerenciador do aparelho tambem nao alcanca: sem este botao a unica forma
+    // de o log sair do aparelho seria Print, que o usuario nao pode enviar.
+    const copy = el('logview-copy');
+    if (copy) copy.addEventListener('click', async () => {
+      const body = el('logview-body');
+      const text = (body && body.textContent || '').trim();
+      if (!text) { toast(t('logview_empty', '')); return; }
+      const ok = await window.vitahub.clipboard(text);
+      toast(ok ? t('logview_copied', '') : t('logview_copy_fail', ''));
+    });
     const close = el('logview-close');
     if (close) close.addEventListener('click', () => toggle(false));
 

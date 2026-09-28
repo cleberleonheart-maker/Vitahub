@@ -1479,6 +1479,27 @@ Thread t = new Thread(new Runnable() {
                 Toast.makeText(this, arg(a, "msg", ""), Toast.LENGTH_LONG).show();
                 bus.reply(id, true);
                 return;
+            case "clipboard": {
+                // O log so existe em Android/data, que nem o seletor do
+                // Android 11+ nem o gerenciador do aparelho alcancam. Sem isto
+                // nao ha caminho de saida para um diagnostico: o usuario teria
+                // que dar Print, que ele nao consegue enviar. Vai para a area
+                // de transferencia e pronto para colar.
+                final String text = arg(a, "text", "");
+                boolean ok = false;
+                try {
+                    android.content.ClipboardManager cm =
+                            (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("VitaHub", text));
+                        ok = true;
+                    }
+                } catch (Throwable e) {
+                    AppLog.e("clipboard falhou", e);
+                }
+                bus.reply(id, ok);
+                return;
+            }
             case "mark":
                 // Também no arquivo, não só no logcat: este aparelho enche o
                 // logcat com o daemon do MIUI e rotaciona os buffers, então as

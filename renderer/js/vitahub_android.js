@@ -1052,6 +1052,7 @@ checkFirmware: function (region) {
     openWith: function (uri) { return call('openWith', { uri: uri || '' }); },
     openPkg: function (path) { return call('openWith', { path: path || '' }); },
     mark: function (tag) { return call('mark', { tag: String(tag || '') }); },
+    clipboard: function (text) { return call('clipboard', { text: String(text || '') }); },
     cameraTake: function () { return call('cameraTake', {}); },
 
     toggleFullscreen: function () { return call('toggleUI'); },
