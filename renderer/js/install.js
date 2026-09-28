@@ -141,10 +141,25 @@ const Installer = (() => {
         });
         if (res.ok) {
           if (window.vitahub.onInstallProgress) window.vitahub.onInstallProgress(null);
+          const PT2 = currentLangCode.startsWith('pt');
           s3.querySelector('.d').textContent = `${res.title || res.titleId || ''} [${res.titleId || ''}]`.trim();
           s3.querySelector('.t').classList.add('done');
-          setOk(s3, true);
-          toast('✓');
+          // Tick verde so com a confirmacao da varredura. "Instalado" sem o
+          // titulo ter aparecido na biblioteca era o que deixava o usuario
+          // sem nenhuma pista do que fazer; agora o passo mostra o titulo, a
+          // pasta onde ele foi gravado e se a biblioteca o enxergou.
+          if (res.inLibrary === false) {
+            s3.querySelector('.t').classList.remove('done');
+            setOk(s3, false);
+            s3.querySelector('.d').textContent = (PT2
+              ? 'Arquivos extraídos, mas a biblioteca não encontrou o jogo. '
+              : 'Files extracted, but the library did not find the game. ')
+              + (res.libReport || '');
+            toast(PT2 ? 'Instalado, mas não apareceu na biblioteca' : 'Installed, but not in the library');
+          } else {
+            setOk(s3, true);
+            toast('✓');
+          }
           Home.refresh();
           showFinish(box);
           return;
@@ -267,6 +282,16 @@ const Installer = (() => {
     const body = document.getElementById('library-body');
     const games = await window.vitahub.listApps();
     body.innerHTML = '';
+    // O resumo da varredura fica sempre visivel aqui, nao so quando ha erro:
+    // e a unica linha que diz em qual pasta o app esta procurando e quantos
+    // titulos encontrou nela, que e o que fecha o diagnostico de "instalou mas
+    // nao aparece" sem precisar de log.
+    if (games && games.scanReport) {
+      const rep = document.createElement('div');
+      rep.className = 'lib-report';
+      rep.textContent = games.scanReport;
+      body.appendChild(re);
+    }
     if (games && games.listError) {
       // Falha de leitura nao e biblioteca vazia: dizer "nenhum jogo instalado"
       // logo depois de instalar um manda o usuario para o canto errado.

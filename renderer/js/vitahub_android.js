@@ -709,8 +709,24 @@ checkFirmware: function (region) {
                     content: JSON.stringify({ titleId: r.titleId, kind: r.kind || kind, keyType: r.keyType || 0, itemCount: r.itemCount || 0, pfsFiles: r.pfsFiles != null ? r.pfsFiles : 0, pfsError: r.pfsError || '' }),
                   });
                 } catch (e) {}
+                // O host ter extraido o eboot nao prova que o jogo entrou na
+                // biblioteca -- o "instalado" so vale se a mesma varredura que a
+                // Home usa enxergar o titulo. Aqui a instalacao se confere no
+                // mesmo instante e devolve o veredito, com o resumo das pastas,
+                // para a tela do instalador dizer o que aconteceu em vez de so
+                // mostrar um tick verde.
+                let libReport = '';
+                let inLibrary = true;
+                try {
+                  const lib = await self.listApps();
+                  inLibrary = Array.isArray(lib) && lib.some(function (g) { return g && g.titleId === r.titleId; });
+                  libReport = (lib && lib.scanReport) || '';
+                } catch (e) {
+                  inLibrary = false;
+                  libReport = String((e && e.message) || e);
+                }
                 toastMsg('Jogo instalado: ' + r.titleId);
-                return { ok: true, mode: 'standalone', titleId: r.titleId, title: r.title, kind: hasPsp ? 'psp' : 'vita' };
+                return { ok: true, mode: 'standalone', titleId: r.titleId, title: r.title, kind: hasPsp ? 'psp' : 'vita', appDir: r.appDir, inLibrary: inLibrary, libReport: libReport };
               }
               if (r && r.error) {
                 console.error('installPkg falhou: ' + r.error);
