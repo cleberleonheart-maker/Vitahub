@@ -1,8 +1,27 @@
 'use strict';
 
 window.__errs = [];
+// O Chromium esconde filename/lineno de codigo executado fora do documento
+// (eval, script injetado, origem cruzada) e nesse caso o alerta vira
+// "Script error. @:0", que nao diz nada. O stack e o alvo do evento ainda
+// vem preenchidos, entao a linha so e hopeless quando tambem eles faltam --
+// e mesmo assim vale registrar que o erro chegou pelo handler global, porque
+// a origem do Lancador some.
+function erroLegivel(e) {
+  const arquivo = e.filename ? e.filename.split('/').pop() : 'arquivo-desconhecido';
+  const linha = (e.lineno || 0) + ':' + (e.colno || 0);
+  let extra = '';
+  try {
+    if (e.error && e.error.stack) {
+      extra = ' | stack ' + String(e.error.stack).split('\n').slice(0, 5).map((l) => l.trim()).join(' <- ');
+    } else if (e.target) {
+      extra = ' | alvo ' + (e.target.tagName || e.target.nodeName || e.target.src || '?');
+    }
+  } catch (ignore) {}
+  return `${e.message || 'erro sem mensagem'} @${arquivo}:${linha}${extra}`;
+}
 window.addEventListener('error', (e) => {
-  const msg = `${e.message} @${(e.filename || '').split('/').pop()}:${e.lineno}`;
+  const msg = erroLegivel(e);
   window.__errs.push(msg);
   try { if (window.vitahub && window.vitahub.mark) window.vitahub.mark('ERR:' + msg); } catch (ignore) {}
 });

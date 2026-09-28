@@ -35,6 +35,10 @@ function world(spec) {
     installDir: spec.installDir || '',
     cfgExtra: spec.cfgExtra || null,
     corruptConfig: !!spec.corruptConfig,
+    // Sem isto o cenario de copia interrompida nao existe: o mundo default nao
+    // truncaria nunca, e o teste passaria com a arvore inteira quando o que se
+    // quer exercitar e a copia morrendo no meio.
+    truncateCopy: !!spec.truncateCopy,
   });
 }
 
@@ -203,6 +207,109 @@ function world(spec) {
     eq('boot com firmware: a engine NAO e inicializada', w.calls.indexOf('fwInstall'), -1);
     eq('boot com firmware: nada falta', r.fw.missing, false);
     eq('boot com firmware: fwInstalled vira true', w.config.fwInstalled, true);
+  }
+
+  // ---------------------------------------------------------------------------
+  // ADOCAO DE FIRMWARE: trocar de pasta nao pode custar o firmware.
+  //
+  // O sintoma era o mais dificil de ler que existe, porque nenhuma palavra
+  // sobre firmware aparecia em lugar nenhum. O log da engine mostrava a arvore
+  // escolhida, o jogo ate comecava ("Game started: Usagi PKGj"), e sete
+  // segundos depois vinham "os0:kd/bootimage.skprx: Missing file",
+  // "vs0:sys/external/libpgf.suprx: Missing file",
+  // "SCE_KERNEL_ERROR_UNKNOWN_LW_MUTEX_ID" e uma cascata de
+  // "Invalid read of uint32_t" ate o signal_handler. A tabela de LW mutex fica
+  // vazia porque os modulos do kernel nunca carregaram -- e o unico jeito de
+  // levar o vs0/os0 para a pasta nova sem passar por NativeLib.init (que aborta
+  // o processo no Android 16) e COPIAR o que ja foi extraido em outra arvore.
+  {
+    // Cenario real: installDir aponta para uma pasta escolhida no cartao, o
+    // firmware foi instalado na pasta privada, e a escolhida nao tem nada.
+    const CUSTOM = STORAGE + '/Download/ps vita/Vita';
+    const w = world({
+      installDir: CUSTOM,
+      dirs: [CUSTOM + '/ux0/app/USAG00001',
+        NEW + '/vs0/sys', NEW + '/os0/kd'],
+      files: [NEW + '/vs0/sys/kernel/module', NEW + '/os0/kd/sysmodule.skprx',
+        CUSTOM + '/ux0/app/USAG00001/eboot.bin'],
+    });
+    const api = mount(w);
+    const r = await run(api, 'migrate');
+    eq('adocao: o firmware vem da pasta privada', r.fwAdotado, NEW);
+    eq('adocao: vs0 E os0 vao juntos', r.fwPartes.join('+'), 'vs0+os0');
+    eq('adocao: a arvore escolhida deixa de faltar firmware', r.fw.missing, false);
+    eq('adocao: vs0/sys existe no destino', w.dirs.has(CUSTOM + '/vs0/sys'), true);
+    eq('adocao: os0/kd existe no destino', w.dirs.has(CUSTOM + '/os0/kd'), true);
+    eq('adocao: o conteudo de vs0 chegou', w.files.has(CUSTOM + '/vs0/sys/kernel/module'), true);
+    eq('adocao: o conteudo de os0 chegou',
+      w.files.has(CUSTOM + '/os0/kd/sysmodule.skprx'), true);
+    // A origem e a unica copia de um firmware que pode ter custado GB de
+    // download. NUNCA e apagada -- nem pela adocao, nem pela migracao.
+    eq('adocao: a origem NAO e apagada', w.dirs.has(NEW + '/vs0/sys'), true);
+    eq('adocao: os arquivos de origem continuam la',
+      w.files.has(NEW + '/vs0/sys/kernel/module'), true);
+    // O crash de abertura nao pode voltar: adocao e copia de arquivo.
+    eq('adocao: a engine NAO e inicializada', w.calls.indexOf('fwInstall'), -1);
+  }
+
+  // O destino ja tem firmware: nao ha o que fazer, e sobretudo nao ha o que
+  // sobrescrever. Copiar por cima deixaria o emulador dependente de uma operacao
+  // de varios GB a cada abertura, sem ganho nenhum.
+  {
+    const CUSTOM = STORAGE + '/Download/ps vita/Vita';
+    const w = world({
+      installDir: CUSTOM,
+      dirs: [NEW + '/vs0/sys', CUSTOM + '/vs0/sys'],
+      files: [NEW + '/vs0/sys/kernel/module', CUSTOM + '/vs0/sys/kernel/module'],
+    });
+    const api = mount(w);
+    const r = await run(api, 'migrate');
+    eq('adocao inutile: nao adota', r.fwAdotado, undefined);
+    eq('adocao inutile: nada falta', r.fw.missing, false);
+    eq('adocao inutile: nenhum vs0 copiado', w.calls.filter((c) => c === 'copyTree').length, 0);
+  }
+
+  // Sem doador em lugar nenhum: ai sim o caminho e perguntar e avisar. Este e o
+  // unico caso em que o firmware realmente falta e a unica resposta honesta e
+  // o botao de instalar.
+  {
+    const CUSTOM = STORAGE + '/Download/ps vita/Vita';
+    const w = world({
+      installDir: CUSTOM,
+      dirs: [CUSTOM + '/ux0/app/USAG00001'],
+      files: [STORAGE + '/fw/PSP2UPDAT.PUP'],
+    });
+    const api = mount(w);
+    const r = await run(api, 'migrate');
+    eq('sem doador: nada foi adotado', r.fwAdotado, undefined);
+    eq('sem doador: continua faltando', r.fw.missing, true);
+    eq('sem doador: o PUP e apontado para a UI', r.fw.pupAvailable, true);
+    eq('sem doador: a engine NAO e inicializada', w.calls.indexOf('fwInstall'), -1);
+  }
+
+  // A origem e uma copia INCOMPLETA (morreu no meio). O "ok" do copyTree nao
+  // serve: e a existencia de vs0/sys no disco que a engine vai ler, e e ela que
+  // precisa ser conferida antes de dizer que deu certo.
+  {
+    const CUSTOM = STORAGE + '/Download/ps vita/Vita';
+    const w = world({
+      installDir: CUSTOM,
+      dirs: [CUSTOM + '/ux0/app/USAG00001', NEW + '/vs0/sys'],
+      files: [NEW + '/vs0/sys/sce_sys/modulo', NEW + '/vs0/sys/kernel/module'],
+      truncateCopy: true,
+    });
+    const api = mount(w);
+    const r = await run(api, 'migrate');
+    eq('copia incompleta: nada e adotado', r.fwAdotado, undefined);
+    eq('copia incompleta: a origem INTACTA', w.files.has(NEW + '/vs0/sys/sce_sys/modulo'), true);
+    // O parcial e apagado para que a proxima abertura tente de novo. Sem isto a
+    // arvore ficaria com vs0/sys presente e pela metade: o emulador exigiria
+    // firmware (e nao avisaria), o boot nao tentaria mais nada, e o jogo
+    // voltaria a morrer com o mesmo erro de LW mutex, agora sem nenhum rastro
+    // de que algo foi tentado.
+    eq('copia incompleta: o vs0 parcial e removido', w.dirs.has(CUSTOM + '/vs0'), false);
+    eq('copia incompleta: continua avisando que falta', r.fw.missing, true);
+    eq('copia incompleta: a engine NAO e inicializada', w.calls.indexOf('fwInstall'), -1);
   }
 
   process.exit(report() ? 1 : 0);

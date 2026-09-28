@@ -55,6 +55,26 @@ function newWorld(spec) {
  * @param {object} [opts] slow: metodo que nunca responde, para exercitar o
  *                         timeout e garantir que ele nao vire falso negativo.
  */
+/**
+ * O caminho existe, no sentido de File.exists() no aparelho: alem do registro
+ * exato, conta tambem um diretorio que e PAI de outro registrado.
+ *
+ * <p>Sem isso o harness mentia em dois lugares que importam: `exists` devolvia
+ * falso para `vs0` quando so `vs0/sys` estava registrado, e o `copyTree`
+ * recusava a origem pelo mesmo motivo. O codigo que adota o firmware checa
+ * `vs0` antes de copiar, entao a mentira nao fazia o teste falhar por um motivo
+ * que existe no aparelho -- pior: fazia um caminho que o host real percorre
+ * parecer impossivel, e um caminho que o host nunca percorre parecer legitimo.
+ */
+function hasPath(world, p) {
+  if (!p) return false;
+  if (world.dirs.has(p) || world.files.has(p) || world.unreadable.has(p)) return true;
+  const prefix = p + '/';
+  for (const d of world.dirs) if (d.startsWith(prefix)) return true;
+  for (const f of world.files) if (f.startsWith(prefix)) return true;
+  return false;
+}
+
 function mount(world, opts) {
   const slow = (opts && opts.slow) || null;
   const replies = [];
@@ -137,11 +157,20 @@ function mount(world, opts) {
           // inteira, e um copyTree de um nivel deixaria o teste passar com um
           // codigo que so copia a primeira camada.
           const src = a.src;
-          if (!world.dirs.has(src) && !world.files.has(src)) { v = { ok: false, error: 'origem' }; break; }
+          if (!hasPath(world, src)) { v = { ok: false, error: 'origem' }; break; }
           const pre = src + '/';
           let bytes = 0;
           let n = 0;
-          for (const f of Array.from(world.files).filter((x) => x.startsWith(pre))) {
+          // `total` e o peso da ORIGEM inteira, como o host calcula com duRec()
+          // antes de comecar. O harness reportava total = bytes, o que apagava
+          // justamente a informacao que distingue "copiou tudo" de "morreu no
+          // meio": sem os dois numeros diferentes, uma copia truncada voltava
+          // parecendo completa e o teste nao tinha como pegar a adocao meio
+          // feita -- que e o que envenena a arvore para sempre.
+          let esperado = 0;
+          const fonte = Array.from(world.files).filter((x) => x.startsWith(pre));
+          for (const f of fonte) esperado += world.sizeOf;
+          for (const f of fonte) {
             if (world.truncateCopy && f.indexOf('/sce_sys/') >= 0) continue;   // morre no meio
             world.files.add(a.dst + f.slice(src.length));
             bytes += world.sizeOf;
@@ -151,7 +180,7 @@ function mount(world, opts) {
             world.dirs.add(a.dst + d.slice(src.length));
           }
           world.dirs.add(a.dst);
-          v = { ok: true, bytes: bytes, files: n, total: bytes };
+          v = { ok: true, bytes: bytes, files: n, total: esperado };
           break;
         }
         case 'defaultDir': v = world.defaultDir; break;
@@ -191,7 +220,7 @@ function mount(world, opts) {
           break;
         }
         case 'exists':
-          v = world.dirs.has(a.path) || world.files.has(a.path) || world.unreadable.has(a.path);
+          v = hasPath(world, a.path);
           break;
         case 'sfoTitle': v = a.path === world.sfo ? world.title : null; break;
         case 'sfoCategory': v = a.path === world.sfo ? world.category : null; break;

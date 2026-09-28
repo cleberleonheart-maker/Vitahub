@@ -53,6 +53,56 @@ public final class PkgExtractor {
     private static int b16le(byte[] b, int o) { return (b[o] & 0xff) | ((b[o + 1] & 0xff) << 8); }
     private static int b32le(byte[] b, int o) { return (b[o] & 0xff) | ((b[o + 1] & 0xff) << 8) | ((b[o + 2] & 0xff) << 16) | ((b[o + 3] & 0xff) << 24); }
     private static int b32be(byte[] b, int o) { return ((b[o] & 0xff) << 24) | ((b[o + 1] & 0xff) << 16) | ((b[o + 2] & 0xff) << 8) | (b[o + 3] & 0xff); }
+
+    /**
+     * Explica por que um arquivo nao passou no teste de PKG de Vita.
+     *
+     * <p>A mensagem antiga era a mesma para quatro situacoes que se consertam
+     * de jeito oposto, e nenhuma delas aparecia no log: um PKG de PS3 ou PSP
+     * (mesma familia, outro cabecalho), um arquivo que nao e PKG nenhum, um
+     * PKG de Vita com o cabecalho corrompido, ou um `.pkg` que e um arquivo
+     * compactado com o nome trocado. Trocar de arquivo resolve as tres
+     * primeiras; a quarta e o proprio arquivo. Sem dizer qual, o usuario so
+     * sabe que "nao e valido" e tenta o proximo arquivo as cegas.
+     *
+     * <p>O que separa os casos e o proprio cabecalho: o PKG de Vita comeca
+     * com "\x7FPKG" e traz o magic de conteudo "\x7Fext" no offset 192. O de
+     * PS3/PSP tambem comeca com "\x7FPKG", mas nao tem o "\x7Fext" ai -- e
+     * por isso que ele e o caso que mais engana: a primeira metade bate, e
+     * parece quase um PKG de Vita.
+     */
+    private static String descreveHeaderPKG(byte[] h, long tamanho) throws Exception {
+        int inicio = b32be(h, 0);
+        int conteudo = b32be(h, 192);
+        boolean temInicio = inicio == 0x7f504b47;
+        boolean temConteudo = conteudo == 0x7f657874;
+        StringBuilder sb = new StringBuilder();
+        sb.append("não é um PKG de PlayStation Vita (").append(tamanho).append(" bytes");
+        if (temInicio && !temConteudo) {
+            // PS3 e PSP usam o mesmo "\x7FPKG" e outro offset para o magic de
+            // conteudo, entao e o caso que mais parece um PKG de Vita.
+            sb.append("; começa com \"\\x7FPKG\" mas não traz \"\\x7Fext\" no offset 192 — parece PKG de PS3 ou PSP");
+        } else if (!temInicio) {
+            sb.append("; primeiros bytes ").append(hex(h, 0, 4));
+            sb.append(" em vez de \"\\x7FPKG\" — não parece ser PKG da Sony (pode ser outro formato, ou compactado com o nome trocado)");
+        } else {
+            sb.append("; cabeçalho do PKG de Vita não confere");
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    /** "3B 20 61 20", para o usuario saber o que o aparelho leu de fato. */
+    private static String hex(byte[] b, int off, int n) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < n && off + i < b.length; i++) {
+            if (i > 0) sb.append(' ');
+            String h = Integer.toHexString(b[off + i] & 0xff).toUpperCase();
+            if (h.length() == 1) sb.append('0');
+            sb.append(h);
+        }
+        return sb.toString();
+    }
     private static long b64be(byte[] b, int o) {
         long v = 0;
         for (int i = 0; i < 8; i++) v = (v << 8) | (b[o + i] & 0xff);
@@ -279,6 +329,23 @@ public final class PkgExtractor {
         return res;
     }
 
+    /**
+     * Content id e titulo do proprio PKG, para as mensagens de chave.
+     *
+     * <p>Os dois ja eram lidos do param.sfo antes da validacao da licenca, e
+     * mesmo assim as mensagens de erro nao os traziam. Isso importa porque um
+     * zRIF so abre o content id exato que ele cifrou: saber o id do jogo e a
+     * diferenca entre "vou buscar a chave certa" e "vou ficar tentando chaves
+     * ao acaso". Tambem separa as duas falhas que antes pareciam a mesma --
+     * arquivo malformado contra chave que pertence a outro titulo.
+     */
+    private static String descreveAlvo(String contentId, String title) {
+        StringBuilder sb = new StringBuilder();
+        if (title != null && !title.isEmpty()) sb.append(" — \"").append(title).append("\"");
+        if (contentId != null && !contentId.isEmpty()) sb.append(" (content id ").append(contentId).append(")");
+        return sb.toString();
+    }
+
     static byte[] zrifDecode(String text) throws Exception {
         byte[] raw = Base64.getDecoder().decode(text.replaceAll("[^A-Za-z0-9+/=]", ""));
         if (raw.length < 6) throw new Exception("zRIF muito curto");
@@ -475,7 +542,7 @@ public final class PkgExtractor {
         try {
             byte[] header = readAt(raf, 0, 512);
             if (b32be(header, 0) != 0x7f504b47 || b32be(header, 192) != 0x7f657874) {
-                throw new Exception("arquivo não é um PKG válido (suportamos PKG digital da PlayStation Store Vita)");
+                throw new Exception(descreveHeaderPKG(header, raf.length()));
             }
             int metaOffset = b32be(header, 8);
             int metaCount = b32be(header, 12);
@@ -570,10 +637,20 @@ public final class PkgExtractor {
                     in.close();
                 }
             } else if (zrifText != null && !zrifText.trim().isEmpty()) {
-                rif = zrifDecode(zrifText);
+                try {
+                    rif = zrifDecode(zrifText);
+                } catch (Exception e) {
+                    // O zRIF so vale para o content id exato que ele cifrou, e o
+                    // param.sfo do proprio pacote ja diz qual e esse id. Sem isto
+                    // o usuario recebia "zRIF corrompido" e nao tinha como saber
+                    // se o arquivo estava malformado ou se era a chave de outro
+                    // jogo -- que e o que a maioria dos casos era.
+                    throw new Exception(e.getMessage() + descreveAlvo(contentId, title));
+                }
             }
             if (rif != null && rif.length != 512 && rif.length != 1024) {
-                throw new Exception("Licença inválida (work.bin deve ter 512 ou 1024 bytes, obteve " + rif.length + ")");
+                throw new Exception("Licença inválida (work.bin deve ter 512 ou 1024 bytes, obteve "
+                        + rif.length + ")" + descreveAlvo(contentId, title));
             }
 
             // Tabela de itens lida em memória: nada foi escrito no disco até aqui.
@@ -589,10 +666,16 @@ public final class PkgExtractor {
                     : verifyLicense(raf, encOffset, mainKey, iv, items, rif);
             if (progress != null) progress.onProgress("verify", 1, 1);
             if (lic == LIC_MISSING) {
-                throw new Exception("Este PKG é protegido: informe a chave (zRIF ou work.bin) correta para instalar.");
+                throw new Exception("Este PKG é protegido: informe a chave (zRIF ou work.bin) correta para instalar."
+                        + descreveAlvo(contentId, title));
             }
             if (lic == LIC_WRONG) {
-                throw new Exception("Chave inválida para este PKG. A instalação foi cancelada — selecione a chave correta.");
+                // A chave foi lida e decodificou, mas não é a deste pacote: a
+                // PFS não fecha. É o caso "tenho chave, é a de outro jogo", e é
+                // o que mais se confunde com o LIC_MISSING acima.
+                throw new Exception("Chave inválida para este PKG: ela decodificou, mas não é a deste título."
+                        + descreveAlvo(contentId, title)
+                        + " — a instalação foi cancelada.");
             }
             boolean rifOk = lic == LIC_VALID;
 

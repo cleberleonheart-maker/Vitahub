@@ -542,6 +542,92 @@
     return out;
   }
 
+  /**
+   * COPIA o firmware ja extraido de outra arvore do app para `dir`, sem tocar
+   * na engine.
+   *
+   * <p>Extrair o PUP e o unico caminho que nao da para repetir aqui, porque ele
+   * mora dentro do libVita3K.so -- e e exatamente ele que aborta o processo no
+   * Android 16 (ver fwStatus). Mas o vs0 e o os0 JA extraidos sao so arquivos,
+   * e o app quase sempre tem uma segunda arvore com eles: a pasta privada,
+   * onde o firmware foi instalado antes de o usuario escolher outra pasta, ou a
+   * compartilhada. Ate aqui trocar de pasta significava perder o firmware em
+   * silencio: a engine sobe, o jogo comeca, e uns segundos depois vem a cascata
+   * de "Invalid read of uint32_t" com
+   * "SCE_KERNEL_ERROR_UNKNOWN_LW_MUTEX_ID" -- porque os modulos do kernel
+   * (os0:kd/sysmodule.skprx) nunca foram carregados e a tabela de LW mutex
+   * fica vazia.
+   *
+   * <p>Copiar e a unica resposta possivel sem a engine, e e a mesma coisa que
+   * migrateToShared() ja faz com a vs0, so que aqui o destino e a pasta que o
+   * usuario escolheu e nao a compartilhada.
+   *
+   * <p>A origem NUNCA e apagada: e possivelmente a unica copia de um firmware
+   * que custou um download de varios GB.
+   */
+  async function adoptFirmwareInto(dir) {
+    const out = { ok: false, copied: false, from: '', parts: [], reason: '' };
+    if (!dir) { out.reason = 'sem-arvore'; return out; }
+    if (await call('exists', { path: dir + '/vs0/sys' })) {
+      out.ok = true;
+      return out;
+    }
+    const s = (await call('storageDir')) || '';
+    // Ordem: a pasta privada primeiro, porque e onde a instalacao manual
+    // escreve; a compartilhada depois, como plano B.
+    for (const d of [s + '/vita', s + '/VitaHub']) {
+      if (out.copied) break;
+      // Nunca copia uma arvore para dentro dela mesma. Com o installDir padrao
+      // (storage/vita) o primeiro doador E o proprio destino, e ai o copyTree
+      // comecaria a sobrescrever os arquivos que ainda esta lendo.
+      if (!d || d === dir || (dir + '/').indexOf(d + '/') === 0) continue;
+      if (!(await call('exists', { path: d + '/vs0/sys' }))) continue;
+      // vs0 E os0, e nao so vs0: o log da engine mostra os dois faltando
+      // (os0:kd/bootimage.skprx, vs0:sys/external/libpgf.suprx), e e a ausencia
+      // do os0 que deixa a tabela de LW mutex vazia.
+      const partes = [];
+      const tentados = [];
+      let completo = true;
+      for (const sub of ['vs0', 'os0']) {
+        if (!(await call('exists', { path: d + '/' + sub }))) continue;
+        tentados.push(sub);
+        const r = await call('copyTree', { src: d + '/' + sub, dst: dir + '/' + sub });
+        // `ok` sozinho NAO basta, e este e o detalhe que decide se a adocao
+        // serve para alguma coisa. O host devolve `total` (bytes da origem) e
+        // `bytes` (bytes copiados): uma copia interrompida -- e o aparelho mata
+        // o app com frequencia suficiente para isso deixar de ser hipotese --
+        // devolve ok com bytes < total. O destino fica com vs0/sys presente e
+        // pela metade, que e o pior resultado possivel: o emulador volta a
+        // dizer que tem firmware, a proxima abertura nao tenta mais nada, e o
+        // jogo morre com o mesmo SCE_KERNEL_ERROR_UNKNOWN_LW_MUTEX_ID de antes.
+        const inteiro = !!(r && r.ok)
+          && (typeof r.total !== 'number' || (r.bytes || 0) >= r.total);
+        if (inteiro) partes.push(sub);
+        else completo = false;
+      }
+      // Confirmado no disco, nunca no retorno do copyTree: o que a engine vai
+      // ler e a existencia de vs0/sys, e um "ok" com a arvore pela metade e
+      // exatamente o que deixa o emulador sem firmware achando que tem.
+      if (completo && await call('exists', { path: dir + '/vs0/sys' })) {
+        out.ok = true;
+        out.copied = true;
+        out.from = d;
+        out.parts = partes;
+        return out;
+      }
+      // Copia pela metade: apaga o que ESTE passo criou, e nunca a origem. Como
+      // so se chega aqui passando do teste do topo (o destino nao tinha
+      // vs0/sys), apagar o destino nao destroi um firmware funcionando -- e e o
+      // que permite que a proxima abertura tente de novo, em vez de aceitar
+      // para sempre uma arvore quebrada.
+      for (const sub of tentados) {
+        await call('delete', { path: dir + '/' + sub });
+      }
+    }
+    out.reason = 'sem-doador';
+    return out;
+  }
+
   async function saveConfig() {
     const home = (await call('homeDir')) || '';
     // Gravacao atomica (tmp + rename) e nao writeFile: config.json guarda o
@@ -728,6 +814,29 @@
           });
         });
     },
+
+    /**
+     * COPIA o firmware de outra arvore do app para `dir`, sem tocar na engine.
+     *
+     * <p>Extrair o PUP e o unico caminho que nao da para repetir aqui, porque
+     * ele mora dentro do libVita3K.so -- e e exatamente ele que aborta o
+     * processo no Android 16. Mas o vs0 e o os0 JA extraidos sao so arquivos, e
+     * o app normalmente tem uma segunda arvore com eles: a pasta privada, onde
+     * o firmware foi instalado antes de o usuario escolher outra pasta, ou a
+     * compartilhada. Trocar de pasta e, ate aqui, significar perder o firmware
+     * em silencio -- a engine sobe, o jogo comeca e morre uns segundos depois
+     * com a cascata de "Invalid read of uint32_t" e
+     * "SCE_KERNEL_ERROR_UNKNOWN_LW_MUTEX_ID", porque os modulos do kernel
+     * (os0:kd/sysmodule.skprx) nunca foram carregados.
+     *
+     * <p>Copiar e a unica resposta possivel sem a engine, e e a mesma coisa que
+     * migrateToShared() ja faz com a vs0 -- so que aqui o destino e a pasta que
+     * o usuario escolheu, e nao a compartilhada.
+     *
+     * <p>A origem NUNCA e apagada: e a unica copia de um firmware que pode ter
+     * custado um download de varios GB.
+     */
+    adoptFirmware: function (dir) { return adoptFirmwareInto(dir); },
 
     launchGame: function (target) {
       const self = this;
@@ -1216,6 +1325,20 @@ checkFirmware: function (region) {
         // jogo era procurado em outra, o que dava "sem vs0/sys" com tudo certo
         // no lugar.
         const fwTree = engineRoot;
+        // Antes de perguntar "falta firmware?", tenta ELE REMEDAR copiando o que
+        // ja foi extraido em outra arvore do app. Sem isso, escolher outra
+        // pasta significava ficar sem firmware em silencio -- e o sintoma era o
+        // mais difícil de ler que existe: o jogo abre, roda alguns segundos e
+        // morre com violacao de memoria la dentro, sem nenhuma palavra sobre
+        // firmware no log. Nao chama fwInstall, entao o crash de abertura nao
+        // volta; e se nao houver doador, cai no aviso de sempre.
+        const adotado = await self.adoptFirmware(fwTree);
+        if (adotado && adotado.copied) {
+          out.fwAdotado = adotado.from;
+          out.fwPartes = adotado.parts;
+          console.log('migrate: firmware adotado de ' + adotado.from
+            + ' (' + adotado.parts.join('+') + ')');
+        }
         const fwReal = await call('exists', { path: fwTree + '/vs0/sys' });
         // NUNCA instalar firmware aqui. Este era o gatilho do crash: o boot
         // chegava nesta linha com a arvore escolhida sem vs0/sys, chamava

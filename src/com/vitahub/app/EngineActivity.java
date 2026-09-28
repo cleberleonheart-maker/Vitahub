@@ -1306,6 +1306,57 @@ public class EngineActivity extends SDLActivity {
         return getWindowManager().getDefaultDisplay().getRotation();
     }
 
+    /**
+     * Antes de subir a engine, registra qual pasta o pref-path realmente aponta e
+     * o que existe dentro dela.
+     *
+     * <p>Sem isso a falha mais comum deste aparelho e invisivel: o engine le
+     * pref-path do config.yml (que o app reescreve com a pasta escolhida na tela
+     * de Firmware), e se o vs0/sys nao estiver la dentro a engine abre, mostra o
+     * splash e chama exit(0) sem passar por nenhum callback Java. No log sobra
+     * so "init = true" e um EXIT_SELF -- e nao ha como saber que a pasta estava
+     * errada, a nao ser por um logatorio do proprio aparelho.
+     */
+    private void preflight() {
+        try {
+            String pref = resolvePrefPath();
+            AppLog.step("preflight: pref-path=" + pref);
+            AppLog.step("preflight: vs0=" + new File(pref, "vs0").isDirectory()
+                    + " vs0/sys=" + new File(pref, "vs0/sys").isDirectory()
+                    + " ux0=" + new File(pref, "ux0").isDirectory()
+                    + " pspemu=" + new File(pref, "pspemu").isDirectory());
+        } catch (Throwable t) {
+            AppLog.e("preflight falhou", t);
+        }
+    }
+
+    /**
+     * Le o pref-path do config.yml ja ajustado por onConfigureEngine() -- o mesmo
+     * arquivo, ja no disco, que a engine vai ler. Ler o proprio arquivo em vez
+     * de recalcular a escolha do usuario evita o preflight e a engine divergirem
+     * quando a regra mudar.
+     */
+    private String resolvePrefPath() {
+        String padrao = new File(getExternalFilesDir(null), "vita").getAbsolutePath();
+        byte[] body = readSmallFile(new File(getExternalFilesDir(null), "config.yml"));
+        if (body == null) return padrao;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?m)^[ \\t]*(?:pref-path|pref_path)[ \\t]*:[ \\t]*(.+)$")
+                .matcher(new String(body, java.nio.charset.StandardCharsets.UTF_8));
+        if (m.find()) {
+            String v = m.group(1).trim();
+            // Comentario inline do yaml nao faz parte do caminho.
+            int corte = v.indexOf(" #");
+            if (corte >= 0) v = v.substring(0, corte).trim();
+            if (v.length() >= 2
+                    && ((v.startsWith("\"") && v.endsWith("\"")) || (v.startsWith("'") && v.endsWith("'")))) {
+                v = v.substring(1, v.length() - 1).trim();
+            }
+            if (v.length() > 0) return v;
+        }
+        return padrao;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         AppLog.init(this);
@@ -1323,6 +1374,8 @@ public class EngineActivity extends SDLActivity {
         AppLog.step("EngineActivity: super.onCreate ok");
         onConfigureEngine();
         AppLog.step("EngineActivity: onConfigureEngine ok");
+        preflight();
+        AppLog.step("EngineActivity: preflight ok");
         if (!ensureNativeSessionInitialized()) {
             AppLog.e("EngineActivity: sessao nativa indisponivel; finish()", null);
             finish();
