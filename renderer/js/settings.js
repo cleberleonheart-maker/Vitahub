@@ -1045,6 +1045,21 @@ const Settings = (() => {
       setTimeout(refreshVolumes, 350);
     });
 
+    // O log precisa de um caminho que nao dependa de ter havido crash. Antes
+    // ele so aparecia pela nota de saida anormal, e um encerramento que o
+    // Android classificou como LOW_MEMORY nao e "anormal" -- o log existia e
+    // nao tinha porta de entrada. Aqui ele e sempre alcancavel.
+    const diagBtn = document.getElementById('set-diag-open');
+    if (diagBtn) {
+      diagBtn.addEventListener('click', () => {
+        try {
+          if (window.Diagnostics) window.Diagnostics.toggle(true);
+        } catch (e) {
+          console.log('set-diag-open:', e);
+        }
+      });
+    }
+
 
     document.getElementById('set-lang').addEventListener('change', async () => {
       await save(true);

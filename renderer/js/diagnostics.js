@@ -43,16 +43,31 @@ const Diagnostics = (() => {
     if (n === 'CRASH') return t('crash_java');
     if (n === 'ANR') return t('crash_anr');
     if (n === 'EXCESSIVE_RESOURCE_USAGE') return t('crash_mem');
+    // LOW_MEMORY e o mais comum nesta familia de aparelho e e o que melhor
+    // descreve "fecha depois de uns segundos em qualquer tela". Tratar como
+    // saida normal deixava a evidencia no log e nada na tela.
+    if (n === 'LOW_MEMORY') return t('crash_lowmem');
+    if (n === 'SIGNALED') return t('crash_signaled') + (info.signal ? ' (' + info.signal + ')' : '');
+    if (n === 'USER_STOPPED') return t('crash_userstop');
+    if (n === 'USER_REQUESTED') return t('crash_userreq');
+    if (n === 'EXIT_SELF') return t('crash_self');
     return n;
   }
 
   function showCrashNote(info) {
     const box = el('crash-note');
-    if (!box || !info || info.abnormal !== true) return;
+    if (!box || !info) return;
+    // notable, nao abnormal: um encerramento por memoria nao e "crash" no
+    // sentido tecnico, mas e exatamente a coisa que o usuario precisa ser
+    // avisado -- e sem aviso ele nunca abre o log para descobrir.
+    const relevant = info.notable === true || info.abnormal === true;
+    if (!relevant && !info.notSupported) return;
     const parts = [reasonText(info)];
     if (info.uptimeMs) parts.push(t('crash_after', fmtAgo(info.uptimeMs)));
     if (info.pssKb) parts.push(t('crash_mem_used', fmtBytes(info.pssKb * 1024)));
-    el('crash-note-title').textContent = t('crash_title');
+    if (info.notSupported && !relevant) parts[0] = t('crash_note_unsupported');
+    el('crash-note-title').textContent = info.notSupported && !relevant
+      ? t('crash_note_unsupported') : t('crash_title');
     el('crash-note-body').textContent = parts.join(' · ');
     box.hidden = false;
   }

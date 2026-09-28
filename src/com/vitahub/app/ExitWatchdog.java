@@ -43,12 +43,25 @@ final class ExitWatchdog {
      */
     static JSONObject report(Context ctx) {
         JSONObject out = new JSONObject();
+        // Todo JSONObject.put declara JSONException (checked) neste codigo. Como
+        // este metodo nunca pode lancar -- uma falha aqui custaria um start
+        // inteiro, nao um log -- cada escrita vai dentro de um try proprio.
         try {
             out.put("supported", Build.VERSION.SDK_INT >= 30);
         } catch (Throwable ignore) {
             return out;
         }
-        if (Build.VERSION.SDK_INT < 30) return out;
+        if (Build.VERSION.SDK_INT < 30) {
+            // Antes do Android 11 nao existe historico de saida. Dizer "nao ha
+            // como saber" e melhor que devolver um objeto vazio e deixar a tela
+            // silenciosa, que e como o log sumiu sem ninguem perceber.
+            try {
+                out.put("notSupported", true);
+                out.put("sdk", Build.VERSION.SDK_INT);
+            } catch (Throwable ignore) {
+            }
+            return out;
+        }
 
         try {
             ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
@@ -77,27 +90,38 @@ final class ExitWatchdog {
                     || reason == ApplicationExitInfo.REASON_CRASH
                     || reason == ApplicationExitInfo.REASON_ANR
                     || reason == ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE;
-
+            // "Anormal" e "o usuario precisa saber" sao coisas diferentes, e
+            // confundir as duas custou tres versoes de diagnostico. LOW_MEMORY e
+            // o motivo mais comum de "o app fecha depois de uns segundos em
+            // qualquer tela" nesta familia de aparelho -- e ele NAO era
+            // considerado anormal, entao o log recebia
+            // "saida anterior=LOW_MEMORY" sem "(ABNORMAL)" e a tela nao mostrava
+            // nada. A evidencia estava sendo gravada e recusada na porta.
+            boolean notable = abnormal
+                    || reason == ApplicationExitInfo.REASON_LOW_MEMORY
+                    || reason == ApplicationExitInfo.REASON_SIGNALED;
             out.put("reason", reason);
             out.put("reasonName", reasonName(reason));
             out.put("status", status);
             out.put("abnormal", abnormal);
+            out.put("notable", notable);
             out.put("timestamp", last.getTimestamp());
             out.put("uptimeMs", Math.max(0L, SystemClock.uptimeMillis() - last.getTimestamp()));
             out.put("pssKb", last.getPss());
             out.put("importance", last.getImportance());
 
             // O sinal so vale a pena como texto quando a saida foi por sinal.
-            if (reason == ApplicationExitInfo.REASON_CRASH_NATIVE) {
+            if (reason == ApplicationExitInfo.REASON_CRASH_NATIVE
+                    || reason == ApplicationExitInfo.REASON_SIGNALED) {
                 out.put("signal", describeSignal(status));
             }
 
             AppLog.step("ExitWatchdog: saida anterior=" + reasonName(reason)
                     + " status=" + status
-                    + (abnormal ? " (ABNORMAL)" : "")
+                    + (notable ? " (RELEVANTE)" : "")
                     + " pss=" + last.getPss() + "kB"
                     + " ha=" + (last.getTraceInputStream() != null));
-            if (abnormal) {
+            if (notable) {
                 String trace = readTrace(last);
                 if (trace != null) {
                     AppLog.step("ExitWatchdog: trace da saida anterior:\n" + trace);
